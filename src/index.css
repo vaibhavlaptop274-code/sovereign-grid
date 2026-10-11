@@ -1,0 +1,28 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  }
+}
+
+@layer utilities {
+  .grid-bg {
+    background-image:
+      linear-gradient(rgba(34, 211, 238, 0.3) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(34, 211, 238, 0.3) 1px, transparent 1px);
+    background-size: 48px 48px;
+    animation: grid-pan 30s linear infinite;
+  }
+
+  @keyframes grid-pan {
+    from {
+      background-position: 0 0;
+    }
+    to {
+      background-position: 48px 48px;
+    }
+  }
+}

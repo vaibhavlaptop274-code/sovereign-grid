@@ -18,11 +18,16 @@ type AuthContextType = {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+const noop = async () => {
+  return { error: 'Firebase is not configured. Set VITE_FIREBASE_* environment variables.' };
+};
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(auth !== null);
 
   useEffect(() => {
+    if (!auth) return;
     const unsub = onAuthStateChanged(auth, (firebaseUser) => {
       setUser(firebaseUser);
       setLoading(false);
@@ -31,6 +36,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signIn = async (email: string, password: string) => {
+    if (!auth) return noop();
     try {
       await signInWithEmailAndPassword(auth, email, password);
       return { error: null };
@@ -40,6 +46,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const signUp = async (email: string, password: string) => {
+    if (!auth) return noop();
     try {
       await createUserWithEmailAndPassword(auth, email, password);
       return { error: null };
@@ -49,6 +56,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const signOut = async () => {
+    if (!auth) return;
     await firebaseSignOut(auth);
   };
 

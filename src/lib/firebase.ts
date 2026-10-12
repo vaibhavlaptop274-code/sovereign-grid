@@ -1,5 +1,5 @@
-import { initializeApp } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
+import { initializeApp, type FirebaseApp } from 'firebase/app';
+import { getAuth, type Auth } from 'firebase/auth';
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -11,9 +11,15 @@ const firebaseConfig = {
   measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID,
 };
 
-if (!firebaseConfig.apiKey || !firebaseConfig.appId) {
-  throw new Error('Missing Firebase configuration. Check that VITE_FIREBASE_* env vars are set.');
+export const firebaseConfigValid =
+  !!(firebaseConfig.apiKey && firebaseConfig.appId && firebaseConfig.projectId);
+
+let app: FirebaseApp | null = null;
+let auth: Auth | null = null;
+
+if (firebaseConfigValid) {
+  app = initializeApp(firebaseConfig);
+  auth = getAuth(app);
 }
 
-export const app = initializeApp(firebaseConfig);
-export const auth = getAuth(app);
+export { app, auth };

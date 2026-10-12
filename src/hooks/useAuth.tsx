@@ -7,6 +7,7 @@ import {
   onAuthStateChanged,
 } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
+import { createUserProfile, touchLastSeen } from '@/lib/firestore';
 
 type AuthContextType = {
   user: User | null;
@@ -18,9 +19,9 @@ type AuthContextType = {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const noop = async () => {
-  return { error: 'Firebase is not configured. Set VITE_FIREBASE_* environment variables.' };
-};
+const unconfigured = async () => ({
+  error: 'Firebase is not configured. Set VITE_FIREBASE_* environment variables.',
+});
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -36,9 +37,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signIn = async (email: string, password: string) => {
-    if (!auth) return noop();
+    if (!auth) return unconfigured();
     try {
-      await signInWithEmailAndPassword(auth, email, password);
+      const cred = await signInWithEmailAndPassword(auth, email, password);
+      // Fire-and-forget: update last seen timestamp
+      touchLastSeen(cred.user.uid);
       return { error: null };
     } catch (err) {
       return { error: err instanceof Error ? err.message : 'Sign in failed' };
@@ -46,9 +49,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const signUp = async (email: string, password: string) => {
-    if (!auth) return noop();
+    if (!auth) return unconfigured();
     try {
-      await createUserWithEmailAndPassword(auth, email, password);
+      const cred = await createUserWithEmailAndPassword(auth, email, password);
+      // Create the player's Firestore profile + initial game progress
+      await createUserProfile(cred.user.uid, cred.user.email ?? email);
       return { error: null };
     } catch (err) {
       return { error: err instanceof Error ? err.message : 'Sign up failed' };

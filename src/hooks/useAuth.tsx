@@ -41,7 +41,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const cred = await signInWithEmailAndPassword(auth, email, password);
       // Fire-and-forget: update last seen timestamp
-      touchLastSeen(cred.user.uid);
+      touchLastSeen(cred.user.uid, cred.user.email ?? email);
       return { error: null };
     } catch (err) {
       return { error: err instanceof Error ? err.message : 'Sign in failed' };

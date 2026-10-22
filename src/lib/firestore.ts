@@ -2,7 +2,6 @@ import {
   doc,
   getDoc,
   setDoc,
-  updateDoc,
   serverTimestamp,
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
@@ -51,9 +50,20 @@ export async function createUserProfile(uid: string, email: string): Promise<voi
   });
 }
 
-export async function touchLastSeen(uid: string): Promise<void> {
+export async function touchLastSeen(uid: string, email?: string): Promise<void> {
   if (!db) return;
-  await updateDoc(doc(db, 'users', uid), { lastSeenAt: serverTimestamp() });
+  const ref = doc(db, 'users', uid);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) {
+    await setDoc(ref, {
+      uid,
+      email: email ?? '',
+      createdAt: serverTimestamp(),
+      lastSeenAt: serverTimestamp(),
+    });
+    return;
+  }
+  await setDoc(ref, { lastSeenAt: serverTimestamp() }, { merge: true });
 }
 
 export async function getGameProgress(uid: string): Promise<GameProgress | null> {
@@ -67,8 +77,13 @@ export async function saveGameProgress(
   progress: Partial<Omit<GameProgress, 'updatedAt'>>,
 ): Promise<void> {
   if (!db) return;
-  await updateDoc(doc(db, 'users', uid, 'game', 'progress'), {
-    ...progress,
-    updatedAt: serverTimestamp(),
-  });
+  await setDoc(
+    doc(db, 'users', uid, 'game', 'progress'),
+    {
+      ...DEFAULT_PROGRESS,
+      ...progress,
+      updatedAt: serverTimestamp(),
+    },
+    { merge: true },
+  );
 }

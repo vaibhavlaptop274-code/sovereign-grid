@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, Suspense } from 'react';
 import {
   RefreshCw,
   Activity,
@@ -8,6 +8,7 @@ import {
   Cpu,
   ArrowUpRight,
   ArrowDownRight,
+  Orbit,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import {
@@ -17,6 +18,7 @@ import {
   type GameProgress,
 } from '@/lib/firestore';
 import ModulePanel from '@/components/ModulePanel';
+import SolarSystem3D from '@/components/SolarSystem3D';
 
 export default function DashboardSection() {
   const { user } = useAuth();
@@ -161,26 +163,27 @@ export default function DashboardSection() {
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
         {/* 3D module placeholder - large */}
         <ModulePanel
-          title="3D Grid Visualizer"
-          subtitle="Module socket"
-          icon={<Activity className="h-4 w-4" />}
-          className="xl:col-span-2 min-h-[320px]"
+          title="Solar System"
+          subtitle="3D visualization"
+          icon={<Orbit className="h-4 w-4" />}
+          className="xl:col-span-2 min-h-[400px]"
         >
-          <div className="relative flex flex-1 items-center justify-center bg-obsidian-900 p-8">
-            <div className="absolute inset-0 grid-bg-fine opacity-40" />
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div className="h-64 w-64 rounded-full bg-neon-cyan/5 blur-3xl animate-glow-pulse" />
-            </div>
-            <div className="relative z-10 text-center">
-              <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl border border-neon-cyan/20 bg-obsidian-800">
-                <Cpu className="h-8 w-8 text-neon-cyan/40" />
-              </div>
-              <p className="font-display text-sm font-medium uppercase tracking-wider text-neon-cyan/40">
-                3D Module Socket
-              </p>
-              <p className="mt-1 font-mono text-[10px] text-gray-600">
-                Awaiting grid visualization plugin
-              </p>
+          <div className="relative h-[400px] w-full bg-obsidian-900">
+            <Suspense
+              fallback={
+                <div className="flex h-full items-center justify-center">
+                  <div className="h-8 w-8 animate-spin rounded-full border-2 border-neon-cyan/20 border-t-neon-cyan" />
+                </div>
+              }
+            >
+              <SolarSystem3D />
+            </Suspense>
+            {/* Overlay hint */}
+            <div className="pointer-events-none absolute bottom-3 left-4 flex items-center gap-2">
+              <span className="flex items-center gap-1.5 rounded-md border border-neon-cyan/15 bg-obsidian-900/80 px-2.5 py-1 font-mono text-[9px] uppercase tracking-wider text-neon-cyan/50 backdrop-blur-sm">
+                <span className="h-1.5 w-1.5 rounded-full bg-neon-cyan animate-glow-pulse" />
+                Drag to rotate / Scroll to zoom
+              </span>
             </div>
           </div>
         </ModulePanel>

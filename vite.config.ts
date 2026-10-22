@@ -13,4 +13,9 @@ export default defineConfig({
   optimizeDeps: {
     exclude: ['lucide-react'],
   },
+  // Transpile React Three Fiber packages — they ship untranspiled JSX/ESM
+  // that Vite's pre-bundler can choke on in production builds.
+  build: {
+    chunkSizeWarningLimit: 1500,
+  },
 });

@@ -1,4 +1,4 @@
-import { useRef, useMemo } from 'react';
+import { useRef, useMemo, Suspense, useState, useEffect } from 'react';
 import { Canvas, useFrame, useLoader } from '@react-three/fiber';
 import { OrbitControls, Stars } from '@react-three/drei';
 import * as THREE from 'three';
@@ -19,33 +19,34 @@ type PlanetConfig = {
   ringOuter?: number;
   emissive?: string;
   emissiveIntensity?: number;
+  fallbackColor: string;
 };
 
-/* ---------- Texture URLs (public domain NASA/solar system textures) ---------- */
+/* ---------- Texture URLs ---------- */
+/* Using the Solar System Scope CDN on Wikimedia — CORS-enabled, reliable */
 
 const TEXTURES = {
-  sun: 'https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/lava/lavatile.jpg',
-  mercury: 'https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/planets/mercury_1024.jpg',
-  venus: 'https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/planets/venus_surface_1024.jpg',
-  earth: 'https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/planets/earth_atmos_2048.jpg',
-  mars: 'https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/planets/mars_1024.jpg',
-  jupiter: 'https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/planets/jupiter_1024.jpg',
-  saturn: 'https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/planets/saturn_1024.jpg',
-  saturnRing: 'https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/planets/saturn_ring_alpha.png',
-  uranus: 'https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/planets/uranus_1024.jpg',
-  neptune: 'https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/planets/neptune_1024.jpg',
-  moon: 'https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/planets/moon_1024.jpg',
+  sun: 'https://upload.wikimedia.org/wikipedia/commons/c/cb/Solarsystemscope_texture_2k_sun.jpg',
+  mercury: 'https://upload.wikimedia.org/wikipedia/commons/c/c0/Solarsystemscope_texture_2k_mercury.jpg',
+  venus: 'https://upload.wikimedia.org/wikipedia/commons/c/cd/Solarsystemscope_texture_2k_venus_surface.jpg',
+  earth: 'https://upload.wikimedia.org/wikipedia/commons/c/cb/Solarsystemscope_texture_2k_earth_daymap.jpg',
+  mars: 'https://upload.wikimedia.org/wikipedia/commons/c/c1/Solarsystemscope_texture_2k_mars.jpg',
+  jupiter: 'https://upload.wikimedia.org/wikipedia/commons/c/c2/Solarsystemscope_texture_2k_jupiter.jpg',
+  saturn: 'https://upload.wikimedia.org/wikipedia/commons/c/c4/Solarsystemscope_texture_2k_saturn.jpg',
+  uranus: 'https://upload.wikimedia.org/wikipedia/commons/c/c5/Solarsystemscope_texture_2k_uranus.jpg',
+  neptune: 'https://upload.wikimedia.org/wikipedia/commons/c/c6/Solarsystemscope_texture_2k_neptune.jpg',
+  moon: 'https://upload.wikimedia.org/wikipedia/commons/c/c7/Solarsystemscope_texture_2k_moon.jpg',
 };
 
 const PLANETS: PlanetConfig[] = [
-  { name: 'Mercury', textureUrl: TEXTURES.mercury, radius: 0.38, orbitRadius: 6, orbitSpeed: 0.48, rotationSpeed: 0.004, axialTilt: 0.03 },
-  { name: 'Venus', textureUrl: TEXTURES.venus, radius: 0.55, orbitRadius: 8.5, orbitSpeed: 0.35, rotationSpeed: 0.002, axialTilt: 177.4 * (Math.PI / 180) },
-  { name: 'Earth', textureUrl: TEXTURES.earth, radius: 0.6, orbitRadius: 12, orbitSpeed: 0.29, rotationSpeed: 0.01, axialTilt: 23.4 * (Math.PI / 180), emissive: '#0a3d80', emissiveIntensity: 0.08 },
-  { name: 'Mars', textureUrl: TEXTURES.mars, radius: 0.45, orbitRadius: 16, orbitSpeed: 0.24, rotationSpeed: 0.008, axialTilt: 25.2 * (Math.PI / 180) },
-  { name: 'Jupiter', textureUrl: TEXTURES.jupiter, radius: 1.4, orbitRadius: 22, orbitSpeed: 0.13, rotationSpeed: 0.02, axialTilt: 3.1 * (Math.PI / 180) },
-  { name: 'Saturn', textureUrl: TEXTURES.saturn, radius: 1.15, orbitRadius: 30, orbitSpeed: 0.097, rotationSpeed: 0.018, axialTilt: 26.7 * (Math.PI / 180), hasRings: true, ringColor: '#c4a979', ringInner: 1.4, ringOuter: 2.3 },
-  { name: 'Uranus', textureUrl: TEXTURES.uranus, radius: 0.8, orbitRadius: 38, orbitSpeed: 0.068, rotationSpeed: 0.012, axialTilt: 97.8 * (Math.PI / 180) },
-  { name: 'Neptune', textureUrl: TEXTURES.neptune, radius: 0.78, orbitRadius: 45, orbitSpeed: 0.054, rotationSpeed: 0.013, axialTilt: 28.3 * (Math.PI / 180) },
+  { name: 'Mercury', textureUrl: TEXTURES.mercury, radius: 0.38, orbitRadius: 6, orbitSpeed: 0.48, rotationSpeed: 0.004, axialTilt: 0.03, fallbackColor: '#8c7853' },
+  { name: 'Venus', textureUrl: TEXTURES.venus, radius: 0.55, orbitRadius: 8.5, orbitSpeed: 0.35, rotationSpeed: 0.002, axialTilt: 177.4 * (Math.PI / 180), fallbackColor: '#e8b87d' },
+  { name: 'Earth', textureUrl: TEXTURES.earth, radius: 0.6, orbitRadius: 12, orbitSpeed: 0.29, rotationSpeed: 0.01, axialTilt: 23.4 * (Math.PI / 180), emissive: '#0a3d80', emissiveIntensity: 0.08, fallbackColor: '#2b7fff' },
+  { name: 'Mars', textureUrl: TEXTURES.mars, radius: 0.45, orbitRadius: 16, orbitSpeed: 0.24, rotationSpeed: 0.008, axialTilt: 25.2 * (Math.PI / 180), fallbackColor: '#cd5c3c' },
+  { name: 'Jupiter', textureUrl: TEXTURES.jupiter, radius: 1.4, orbitRadius: 22, orbitSpeed: 0.13, rotationSpeed: 0.02, axialTilt: 3.1 * (Math.PI / 180), fallbackColor: '#daa06d' },
+  { name: 'Saturn', textureUrl: TEXTURES.saturn, radius: 1.15, orbitRadius: 30, orbitSpeed: 0.097, rotationSpeed: 0.018, axialTilt: 26.7 * (Math.PI / 180), hasRings: true, ringColor: '#c4a979', ringInner: 1.4, ringOuter: 2.3, fallbackColor: '#e3c89e' },
+  { name: 'Uranus', textureUrl: TEXTURES.uranus, radius: 0.8, orbitRadius: 38, orbitSpeed: 0.068, rotationSpeed: 0.012, axialTilt: 97.8 * (Math.PI / 180), fallbackColor: '#9ec4d6' },
+  { name: 'Neptune', textureUrl: TEXTURES.neptune, radius: 0.78, orbitRadius: 45, orbitSpeed: 0.054, rotationSpeed: 0.013, axialTilt: 28.3 * (Math.PI / 180), fallbackColor: '#3f5fb8' },
 ];
 
 /* ---------- Sun ---------- */
@@ -53,7 +54,7 @@ const PLANETS: PlanetConfig[] = [
 function Sun() {
   const meshRef = useRef<THREE.Mesh>(null);
   const coronaRef = useRef<THREE.Mesh>(null);
-  const texture = useLoader(THREE.TextureLoader, TEXTURES.sun);
+  const { texture } = useTextureOrFallback(TEXTURES.sun, '#ffcc33');
 
   useFrame((state) => {
     if (meshRef.current) {
@@ -69,9 +70,8 @@ function Sun() {
     <group>
       <mesh ref={meshRef}>
         <sphereGeometry args={[2.5, 64, 64]} />
-        <meshBasicMaterial map={texture} toneMapped={false} />
+        <meshBasicMaterial map={texture ?? undefined} color={texture ? '#ffffff' : '#ffcc33'} toneMapped={false} />
       </mesh>
-      {/* Glow corona */}
       <mesh ref={coronaRef}>
         <sphereGeometry args={[2.75, 32, 32]} />
         <meshBasicMaterial color="#ff9500" transparent opacity={0.25} side={THREE.BackSide} toneMapped={false} />
@@ -84,11 +84,33 @@ function Sun() {
         <sphereGeometry args={[3.5, 32, 32]} />
         <meshBasicMaterial color="#ff4400" transparent opacity={0.04} side={THREE.BackSide} toneMapped={false} />
       </mesh>
-      {/* Lighting */}
       <pointLight position={[0, 0, 0]} intensity={4} distance={200} decay={1} color="#fff5e6" />
       <pointLight position={[0, 0, 0]} intensity={2} distance={100} decay={2} color="#ffcc88" />
     </group>
   );
+}
+
+/* ---------- Texture loader with fallback ---------- */
+
+function useTextureOrFallback(url: string, fallbackColor: string) {
+  const [texture, setTexture] = useState<THREE.Texture | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    setFailed(false);
+    const loader = new THREE.TextureLoader();
+    loader.load(
+      url,
+      (tex) => {
+        tex.colorSpace = THREE.SRGBColorSpace;
+        setTexture(tex);
+      },
+      undefined,
+      () => setFailed(true),
+    );
+  }, [url]);
+
+  return { texture: failed ? null : texture, fallbackColor };
 }
 
 /* ---------- Planet ---------- */
@@ -96,7 +118,7 @@ function Sun() {
 function Planet({ config }: { config: PlanetConfig }) {
   const groupRef = useRef<THREE.Group>(null);
   const meshRef = useRef<THREE.Mesh>(null);
-  const texture = useLoader(THREE.TextureLoader, config.textureUrl);
+  const { texture, fallbackColor } = useTextureOrFallback(config.textureUrl, config.fallbackColor);
   const startAngle = useMemo(() => Math.random() * Math.PI * 2, []);
 
   useFrame((state) => {
@@ -115,7 +137,8 @@ function Planet({ config }: { config: PlanetConfig }) {
       <mesh ref={meshRef} rotation={[0, 0, config.axialTilt]} castShadow receiveShadow>
         <sphereGeometry args={[config.radius, 48, 48]} />
         <meshStandardMaterial
-          map={texture}
+          map={texture ?? undefined}
+          color={texture ? '#ffffff' : fallbackColor}
           emissive={config.emissive ?? '#000000'}
           emissiveIntensity={config.emissiveIntensity ?? 0}
           roughness={0.85}
@@ -137,7 +160,7 @@ function Planet({ config }: { config: PlanetConfig }) {
 function Moon() {
   const groupRef = useRef<THREE.Group>(null);
   const meshRef = useRef<THREE.Mesh>(null);
-  const texture = useLoader(THREE.TextureLoader, TEXTURES.moon);
+  const { texture } = useTextureOrFallback(TEXTURES.moon, '#cccccc');
   const startAngle = useMemo(() => Math.random() * Math.PI * 2, []);
 
   useFrame((state) => {
@@ -155,7 +178,7 @@ function Moon() {
     <group ref={groupRef}>
       <mesh ref={meshRef} castShadow receiveShadow>
         <sphereGeometry args={[0.16, 32, 32]} />
-        <meshStandardMaterial map={texture} roughness={0.95} metalness={0} />
+        <meshStandardMaterial map={texture ?? undefined} color={texture ? '#ffffff' : '#cccccc'} roughness={0.95} metalness={0} />
       </mesh>
     </group>
   );
@@ -164,10 +187,10 @@ function Moon() {
 /* ---------- Earth with moon ---------- */
 
 function EarthSystem() {
-  const config = PLANETS[2]; // Earth
+  const config = PLANETS[2];
   const groupRef = useRef<THREE.Group>(null);
   const meshRef = useRef<THREE.Mesh>(null);
-  const texture = useLoader(THREE.TextureLoader, config.textureUrl);
+  const { texture, fallbackColor } = useTextureOrFallback(config.textureUrl, config.fallbackColor);
   const startAngle = useMemo(() => Math.random() * Math.PI * 2, []);
 
   useFrame((state) => {
@@ -185,7 +208,7 @@ function EarthSystem() {
     <group ref={groupRef}>
       <mesh ref={meshRef} rotation={[0, 0, config.axialTilt]} castShadow receiveShadow>
         <sphereGeometry args={[config.radius, 48, 48]} />
-        <meshStandardMaterial map={texture} emissive={config.emissive} emissiveIntensity={config.emissiveIntensity} roughness={0.85} metalness={0} />
+        <meshStandardMaterial map={texture ?? undefined} color={texture ? '#ffffff' : fallbackColor} emissive={config.emissive} emissiveIntensity={config.emissiveIntensity} roughness={0.85} metalness={0} />
       </mesh>
       <Moon />
     </group>
@@ -243,7 +266,9 @@ export default function SolarSystem3D() {
         gl={{ antialias: true, alpha: false }}
       >
         <color attach="background" args={['#000005']} />
-        <Scene />
+        <Suspense fallback={null}>
+          <Scene />
+        </Suspense>
         <OrbitControls
           enablePan
           minDistance={5}

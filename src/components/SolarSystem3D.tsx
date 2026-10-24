@@ -2473,3 +2473,779 @@ export default function SolarSystem3D() {
       ) {
         e.preventDefault();
       }
+
+      if (e.repeat) return;
+
+      if (code === 'KeyC') toggleFlightMode();
+      else if (code === 'KeyX') {
+        if (isCockpitMode && (keyState['ControlLeft'] || keyState['ControlRight']))
+          zeroShipVelocity();
+        else triggerSolarFlareCME(true);
+      } else if (code === 'KeyH') toggleKeyboardHelp();
+      else if (code === 'KeyO') toggleOrbits();
+      else if (code === 'KeyL') toggleLabels();
+      else if (code === 'KeyB') toggleAsteroids();
+      else if (code === 'KeyP') togglePause();
+      else if (code === 'KeyT') toggleTourMode();
+      else if (code === 'KeyV') setCameraPreset('topdown');
+      else if (code === 'KeyZ') zoomToSurface();
+      else if (code === 'KeyG') toggleAutopilot();
+      else if (code === 'KeyI') toggleInvertPitch();
+      else if (code === 'BracketLeft') stepPlanet(-1);
+      else if (code === 'BracketRight') stepPlanet(1);
+      else if (code === 'Comma') adjustTimeSpeed(-1);
+      else if (code === 'Period') adjustTimeSpeed(1);
+      else if (code === 'Escape') releaseFocus();
+      else if (code === 'Digit0') selectCelestialTarget('sun');
+      else if (code === 'Digit1') selectCelestialTarget('mercury');
+      else if (code === 'Digit2') selectCelestialTarget('venus');
+      else if (code === 'Digit3') selectCelestialTarget('earth');
+      else if (code === 'Digit4') selectCelestialTarget('mars');
+      else if (code === 'Digit5') selectCelestialTarget('jupiter');
+      else if (code === 'Digit6') selectCelestialTarget('saturn');
+      else if (code === 'Digit7') selectCelestialTarget('uranus');
+      else if (code === 'Digit8') selectCelestialTarget('neptune');
+      else if (code === 'Digit9') {
+        if (isCockpitMode) toggleFlightMode();
+        setCameraPreset('overview');
+      }
+    }
+
+    function onKeyUp(e: KeyboardEvent) {
+      keyState[e.code] = false;
+    }
+
+    function onPointerDown(e: PointerEvent) {
+      pointerDownPos.x = e.clientX;
+      pointerDownPos.y = e.clientY;
+    }
+
+    function onPointerUp(e: PointerEvent) {
+      const dx = e.clientX - pointerDownPos.x;
+      const dy = e.clientY - pointerDownPos.y;
+      if (Math.sqrt(dx * dx + dy * dy) > 6) return;
+
+      mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+      mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+
+      raycaster.setFromCamera(mouse, camera);
+      const targetMeshes = Object.values(planetObjects).map((p) => p.mainMesh);
+      const intersects = raycaster.intersectObjects(targetMeshes, false);
+
+      if (intersects.length > 0) {
+        const hitPlanetId = intersects[0].object.userData.planetId;
+        if (hitPlanetId) selectCelestialTarget(hitPlanetId);
+      }
+    }
+
+    function onWindowResize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+
+    /* --- 12. 6DOF Spaceship Flight & Orbital Camera Updaters --- */
+    const _forward = new THREE.Vector3();
+    const _right = new THREE.Vector3();
+    const _up = new THREE.Vector3();
+    const _qPitch = new THREE.Quaternion();
+    const _qYaw = new THREE.Quaternion();
+    const _qRoll = new THREE.Quaternion();
+    const _targetWorldPos = new THREE.Vector3();
+    const _lookMatrix = new THREE.Matrix4();
+    const _desiredQuat = new THREE.Quaternion();
+
+    function updateSpaceshipFlight(dt: number) {
+      const rotAccel = 2.6 * dt;
+      const pitchSign = invertPitch ? -1 : 1;
+
+      if (keyState['ArrowUp']) {
+        shipState.angularVelocity.x += rotAccel * pitchSign;
+        isAutopilot = false;
+        updateAutopilotUI();
+      }
+      if (keyState['ArrowDown']) {
+        shipState.angularVelocity.x -= rotAccel * pitchSign;
+        isAutopilot = false;
+        updateAutopilotUI();
+      }
+      if (keyState['ArrowLeft']) {
+        shipState.angularVelocity.y += rotAccel;
+        isAutopilot = false;
+        updateAutopilotUI();
+      }
+      if (keyState['ArrowRight']) {
+        shipState.angularVelocity.y -= rotAccel;
+        isAutopilot = false;
+        updateAutopilotUI();
+      }
+      if (keyState['KeyQ']) {
+        shipState.angularVelocity.z += rotAccel * 1.25;
+      }
+      if (keyState['KeyE']) {
+        shipState.angularVelocity.z -= rotAccel * 1.25;
+      }
+
+      shipState.angularVelocity.multiplyScalar(Math.pow(0.06, dt));
+
+      _qPitch.setFromAxisAngle(new THREE.Vector3(1, 0, 0), shipState.angularVelocity.x * dt);
+      _qYaw.setFromAxisAngle(new THREE.Vector3(0, 1, 0), shipState.angularVelocity.y * dt);
+      _qRoll.setFromAxisAngle(new THREE.Vector3(0, 0, 1), shipState.angularVelocity.z * dt);
+
+      shipState.quaternion.multiply(_qYaw).multiply(_qPitch).multiply(_qRoll);
+      shipState.quaternion.normalize();
+
+      _forward.set(0, 0, -1).applyQuaternion(shipState.quaternion).normalize();
+      _right.set(1, 0, 0).applyQuaternion(shipState.quaternion).normalize();
+      _up.set(0, 1, 0).applyQuaternion(shipState.quaternion).normalize();
+
+      let activeThrustInput = 0;
+      if (isAutopilot && focusedPlanetId && planetObjects[focusedPlanetId]) {
+        const tObj = planetObjects[focusedPlanetId];
+        tObj.planetHolder.getWorldPosition(_targetWorldPos);
+        const toTarget = _targetWorldPos.clone().sub(shipState.position);
+        const dist = toTarget.length();
+        const standoffDist = Math.max(tObj.data.radius * 3.4, 9.0);
+
+        _lookMatrix.lookAt(shipState.position, _targetWorldPos, _up);
+        _desiredQuat.setFromRotationMatrix(_lookMatrix);
+        shipState.quaternion.slerp(_desiredQuat, clamp(dt * 3.8, 0, 1));
+
+        if (dist > standoffDist * 1.08) {
+          const desiredSpeed = clamp((dist - standoffDist) * 1.6, 12, 260);
+          const desiredVel = toTarget.normalize().multiplyScalar(desiredSpeed);
+          shipState.velocity.lerp(desiredVel, clamp(dt * 2.5, 0, 1));
+          activeThrustInput = dist > 180 ? 1.0 : 0.65;
+          shipState.isWarping = dist > 220;
+        } else {
+          shipState.velocity.multiplyScalar(Math.pow(0.02, dt));
+          shipState.isWarping = false;
+          isAutopilot = false;
+          updateAutopilotUI();
+        }
+      } else {
+        const isBoost = keyState['ShiftLeft'] || keyState['ShiftRight'];
+        const wantsWarp = Boolean(keyState['Space'] && shipState.warpCharge > 2);
+        shipState.isWarping = wantsWarp;
+
+        let baseAccel = 42.0;
+        if (isBoost) baseAccel = 135.0;
+        if (wantsWarp) baseAccel = 480.0;
+
+        if (keyState['KeyW'] || wantsWarp) {
+          shipState.velocity.addScaledVector(_forward, baseAccel * dt);
+          activeThrustInput = wantsWarp ? 1.0 : isBoost ? 0.85 : 0.5;
+        }
+        if (keyState['KeyS']) {
+          shipState.velocity.addScaledVector(_forward, -baseAccel * 0.85 * dt);
+          activeThrustInput = 0.35;
+        }
+        if (keyState['KeyA']) {
+          shipState.velocity.addScaledVector(_right, -baseAccel * 0.65 * dt);
+        }
+        if (keyState['KeyD']) {
+          shipState.velocity.addScaledVector(_right, baseAccel * 0.65 * dt);
+        }
+        if (keyState['KeyR'] || keyState['Equal']) {
+          shipState.velocity.addScaledVector(_up, baseAccel * 0.65 * dt);
+        }
+        if (keyState['KeyF'] || keyState['Minus']) {
+          shipState.velocity.addScaledVector(_up, -baseAccel * 0.65 * dt);
+        }
+
+        if (wantsWarp) {
+          shipState.warpCharge = Math.max(0, shipState.warpCharge - 18 * dt);
+        } else {
+          shipState.warpCharge = Math.min(100, shipState.warpCharge + 14 * dt);
+        }
+
+        shipState.velocity.multiplyScalar(Math.pow(0.22, dt));
+      }
+
+      shipState.position.addScaledVector(shipState.velocity, dt);
+
+      if (shipState.position.length() < 16.0) {
+        shipState.position.normalize().multiplyScalar(16.0);
+      }
+
+      camera.position.copy(shipState.position);
+      camera.quaternion.copy(shipState.quaternion);
+
+      const targetFov = shipState.isWarping
+        ? 104
+        : keyState['ShiftLeft'] || keyState['ShiftRight']
+          ? 68
+          : 55;
+      camera.fov += (targetFov - camera.fov) * clamp(dt * 6.0, 0, 1);
+      camera.updateProjectionMatrix();
+
+      if (warpTunnelLines) {
+        const mat = warpTunnelLines.material as THREE.LineBasicMaterial;
+        const targetOpacity = shipState.isWarping ? 0.75 : 0.0;
+        mat.opacity += (targetOpacity - mat.opacity) * clamp(dt * 8.0, 0, 1);
+        if (mat.opacity > 0.01) {
+          warpTunnelLines.rotation.z += dt * 1.5;
+          const posAttr = warpTunnelLines.geometry.attributes.position;
+          for (let i = 0; i < posAttr.count; i += 2) {
+            let z1 = posAttr.getZ(i) + dt * 220;
+            let z2 = posAttr.getZ(i + 1) + dt * 220;
+            if (z1 > 2) {
+              z1 -= 95;
+              z2 -= 95;
+            }
+            posAttr.setZ(i, z1);
+            posAttr.setZ(i + 1, z2);
+          }
+          posAttr.needsUpdate = true;
+        }
+      }
+
+      const speedUnits = shipState.velocity.length();
+      const displayKms = (speedUnits * 14.8).toFixed(1);
+      const speedReadoutEl = q('cockpit-speed-readout');
+      if (speedReadoutEl) {
+        speedReadoutEl.innerHTML = shipState.isWarping
+          ? `${(speedUnits * 0.042).toFixed(2)} <span class="text-xs font-mono-tech text-fuchsia-400">c WARP</span>`
+          : `${displayKms} <span class="text-xs font-mono-tech text-sky-400">km/s</span>`;
+      }
+
+      shipState.throttleDisplay +=
+        (activeThrustInput * 100 - shipState.throttleDisplay) * clamp(dt * 8, 0, 1);
+      const throtPct = q('cockpit-throttle-pct');
+      const throtBar = q('cockpit-throttle-bar');
+      if (throtPct) throtPct.textContent = `${Math.round(shipState.throttleDisplay)}%`;
+      if (throtBar) throtBar.style.width = `${clamp(shipState.throttleDisplay, 0, 100)}%`;
+
+      const warpPct = q('cockpit-warp-pct');
+      const warpBar = q('cockpit-warp-bar');
+      if (warpPct) warpPct.textContent = `${Math.round(shipState.warpCharge)}%`;
+      if (warpBar) warpBar.style.width = `${shipState.warpCharge}%`;
+
+      if (!isAutopilot) {
+        const badge = q('flight-status-badge');
+        if (badge) {
+          if (shipState.isWarping) {
+            badge.textContent = 'WARP DRIVE ACTIVE';
+            badge.className =
+              'text-[10px] font-mono-tech px-1.5 py-0.5 rounded bg-fuchsia-500/30 text-fuchsia-200 border border-fuchsia-400/60';
+          } else if (keyState['ShiftLeft'] || keyState['ShiftRight']) {
+            badge.textContent = 'AFTERBURNER';
+            badge.className =
+              'text-[10px] font-mono-tech px-1.5 py-0.5 rounded bg-amber-500/25 text-amber-300 border border-amber-400/50';
+          } else {
+            badge.textContent = 'MANUAL 6DOF';
+            badge.className =
+              'text-[10px] font-mono-tech px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40';
+          }
+        }
+      }
+
+      const horizonEl = q('hud-horizon-group');
+      const rungsEl = root?.querySelector('#hud-pitch-rungs');
+      if (horizonEl && rungsEl) {
+        const rollDeg = -shipState.angularVelocity.z * 28;
+        const pitchOffset = clamp(shipState.angularVelocity.x * 22, -35, 35);
+        horizonEl.style.transform = `rotate(${rollDeg}deg)`;
+        rungsEl.setAttribute('transform', `translate(0, ${pitchOffset})`);
+      }
+
+      const targetBox = q('cockpit-target-box');
+      if (focusedPlanetId && planetObjects[focusedPlanetId] && targetBox) {
+        const tObj = planetObjects[focusedPlanetId];
+        tObj.planetHolder.getWorldPosition(_targetWorldPos);
+        const distUnits = _targetWorldPos.distanceTo(shipState.position);
+        const distText = tObj.data.isDeepSpace
+          ? `${(distUnits * 0.012).toFixed(1)} kLY`
+          : `${(distUnits / 56).toFixed(2)} AU`;
+
+        const navDist = q('nav-target-dist');
+        const lockDist = q('cockpit-lock-dist');
+        if (navDist) navDist.textContent = distText;
+        if (lockDist) lockDist.textContent = distText;
+
+        const proj = _targetWorldPos.clone().project(camera);
+        const halfW = window.innerWidth / 2;
+        const halfH = window.innerHeight / 2;
+
+        if (proj.z > 1.0) {
+          const edgeX = clamp(-proj.x * halfW + halfW, 60, window.innerWidth - 60);
+          const edgeY = clamp(proj.y * halfH + halfH, 80, window.innerHeight - 120);
+          targetBox.style.left = `${edgeX}px`;
+          targetBox.style.top = `${edgeY}px`;
+          targetBox.style.opacity = '0.45';
+        } else {
+          const screenX = clamp(proj.x * halfW + halfW, 50, window.innerWidth - 50);
+          const screenY = clamp(-proj.y * halfH + halfH, 70, window.innerHeight - 110);
+          targetBox.style.left = `${screenX}px`;
+          targetBox.style.top = `${screenY}px`;
+          targetBox.style.opacity = '1';
+        }
+      }
+    }
+
+    const _spherical = new THREE.Spherical();
+    const _offsetVec = new THREE.Vector3();
+
+    function updateKeyboardOrbitalCamera(dt: number) {
+      let azimDelta = 0;
+      let polarDelta = 0;
+      let zoomFactor = 1.0;
+
+      const orbitSpeed = 1.45 * dt;
+      if (keyState['ArrowLeft'] || keyState['KeyA']) azimDelta += orbitSpeed;
+      if (keyState['ArrowRight'] || keyState['KeyD']) azimDelta -= orbitSpeed;
+      if (keyState['ArrowUp'] || keyState['KeyW']) polarDelta -= orbitSpeed * 0.8;
+      if (keyState['ArrowDown'] || keyState['KeyS']) polarDelta += orbitSpeed * 0.8;
+
+      if (keyState['KeyR'] || keyState['Equal'] || keyState['NumpadAdd'])
+        zoomFactor = 1.0 - 1.35 * dt;
+      if (keyState['KeyF'] || keyState['Minus'] || keyState['NumpadSubtract'])
+        zoomFactor = 1.0 + 1.35 * dt;
+
+      if (azimDelta !== 0 || polarDelta !== 0 || zoomFactor !== 1.0) {
+        cameraTransition.active = false;
+        _offsetVec.copy(camera.position).sub(controls.target);
+        _spherical.setFromVector3(_offsetVec);
+        _spherical.theta += azimDelta;
+        _spherical.phi = clamp(_spherical.phi + polarDelta, 0.08, Math.PI - 0.08);
+        _spherical.radius = clamp(
+          _spherical.radius * zoomFactor,
+          controls.minDistance,
+          controls.maxDistance,
+        );
+        _offsetVec.setFromSpherical(_spherical);
+        camera.position.copy(controls.target).add(_offsetVec);
+      }
+    }
+
+    /* --- 13. Initialization Sequence --- */
+    updateLoadingProgress(15, 'Generating Deep Space Milky Way Skybox...');
+    buildCosmosBackground();
+
+    updateLoadingProgress(40, 'Synthesizing Planetary Surface Maps & Shaders...');
+    buildCelestialBodies();
+
+    updateLoadingProgress(65, 'Igniting Solar Magnetic Loops & CME Particle Engine...');
+    buildSolarFlaresAndCME();
+
+    updateLoadingProgress(80, 'Constructing Orion Nebula, Andromeda Galaxy & Pulsars...');
+    buildDeepSpaceObjects();
+
+    updateLoadingProgress(92, 'Populating 3D Asteroid & Kuiper Belts...');
+    buildAsteroidBelts();
+    buildWarpTunnelEffect();
+
+    scene.add(orbitLinesGroup);
+    scene.add(beltsGroup);
+
+    buildUIAndLabels();
+
+    window.addEventListener('resize', onWindowResize);
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+    renderer.domElement.addEventListener('pointerdown', onPointerDown);
+    renderer.domElement.addEventListener('pointerup', onPointerUp);
+
+    setCameraPreset('overview');
+
+    updateLoadingProgress(100, 'All Telemetry & Flight Systems Online.');
+    const loaderTimeout = setTimeout(() => {
+      const loader = q('loading-screen');
+      if (loader) loader.classList.add('opacity-0', 'pointer-events-none');
+    }, 350);
+
+    /* --- 14. Main 60FPS Animation Loop --- */
+    const clock = new THREE.Clock();
+    const tempVec = new THREE.Vector3();
+    const prevPlanetWorldPos = new THREE.Vector3();
+    const currPlanetWorldPos = new THREE.Vector3();
+    const dummyAsteroid = new THREE.Object3D();
+
+    function animate() {
+      if (cancelled) return;
+      animFrameId = requestAnimationFrame(animate);
+
+      const dt = Math.min(clock.getDelta(), 0.1);
+      const elapsed = clock.getElapsedTime();
+      const simDelta = isPaused ? 0 : dt * timeMultiplier;
+
+      solarFlareBoost = Math.max(0, solarFlareBoost - dt * 0.45);
+      if (sunMaterialUniforms) {
+        sunMaterialUniforms.uTime.value = elapsed;
+        sunMaterialUniforms.uFlareBoost.value = solarFlareBoost;
+      }
+      sunLight.intensity = 3.2 + solarFlareBoost * 1.4;
+
+      for (let i = 0; i < solarLoops.length; i++) {
+        const loop = solarLoops[i];
+        loop.uniforms.uTime.value = elapsed;
+        loop.uniforms.uIntensity.value =
+          0.78 + Math.sin(elapsed * 1.8 + loop.phase) * 0.22 + solarFlareBoost * 0.5;
+        const pulseScale =
+          1.0 + Math.sin(elapsed * 0.9 + loop.phase) * 0.06 + solarFlareBoost * 0.12;
+        loop.mesh.scale.setScalar(pulseScale);
+      }
+
+      autoCmeTimer += dt;
+      if (autoCmeTimer > 22.0) {
+        autoCmeTimer = 0;
+        triggerSolarFlareCME(false);
+      }
+
+      if (cmeParticleSystem) {
+        const posAttr = cmeParticleSystem.geometry.attributes.position;
+        const colAttr = cmeParticleSystem.geometry.attributes.color;
+        for (let i = 0; i < CME_COUNT; i++) {
+          const p = cmeParticles[i];
+          if (p.age < p.maxAge) {
+            p.age += dt;
+            p.pos.addScaledVector(p.vel, dt);
+            const lifeRatio = clamp(p.age / p.maxAge, 0, 1);
+
+            posAttr.setXYZ(i, p.pos.x, p.pos.y, p.pos.z);
+
+            const r = 1.0 - lifeRatio * 0.35;
+            const g = Math.max(0, 0.95 - lifeRatio * 1.15);
+            const b = Math.max(0, 0.75 - lifeRatio * 1.6);
+            const fade = 1.0 - Math.pow(lifeRatio, 1.5);
+            colAttr.setXYZ(i, r * fade, g * fade, b * fade);
+          } else {
+            posAttr.setXYZ(i, 0, 0, 0);
+            colAttr.setXYZ(i, 0, 0, 0);
+          }
+        }
+        posAttr.needsUpdate = true;
+        colAttr.needsUpdate = true;
+      }
+
+      for (let i = 0; i < pulsarObjects.length; i++) {
+        const pul = pulsarObjects[i];
+        pul.spinGroup.rotation.y += pul.speed * dt;
+        const strobe = 22 + Math.sin(elapsed * pul.speed * 2.0) * 8;
+        pul.coreFlare.scale.setScalar(strobe);
+      }
+      if (planetObjects['andromeda']) {
+        planetObjects['andromeda'].tiltGroup.rotation.y += 0.015 * dt;
+      }
+
+      if (!isPaused && timeMultiplier > 0) {
+        simulatedDays += simDelta * 14.5;
+        const baseDate = new Date(2026, 9, 21);
+        baseDate.setDate(baseDate.getDate() + Math.floor(simulatedDays));
+        const dateEl = q('sim-date-display');
+        if (dateEl) dateEl.textContent = baseDate.toISOString().split('T')[0];
+      }
+
+      if (!isCockpitMode && focusedPlanetId && planetObjects[focusedPlanetId]) {
+        planetObjects[focusedPlanetId].planetHolder.getWorldPosition(prevPlanetWorldPos);
+      }
+
+      CELESTIAL_DATA.filter((d) => !d.isDeepSpace).forEach((data) => {
+        const obj = planetObjects[data.id];
+        if (!obj) return;
+
+        if (data.distance && data.distance > 0 && data.orbitalSpeed) {
+          obj.angle += data.orbitalSpeed * 0.22 * simDelta;
+          const a = data.distance;
+          const e = data.eccentricity || 0.01;
+          const b = a * Math.sqrt(1 - e * e);
+          obj.planetHolder.position.set(Math.cos(obj.angle) * a, 0, Math.sin(obj.angle) * b);
+        }
+
+        const rotSpeed = data.rotationSpeed || 0;
+        obj.mainMesh.rotation.y += rotSpeed * (isPaused ? 0.15 : 1 + timeMultiplier * 0.35);
+
+        if (obj.cloudMesh) {
+          obj.cloudMesh.rotation.y +=
+            rotSpeed * 1.28 * (isPaused ? 0.15 : 1 + timeMultiplier * 0.35);
+        }
+
+        obj.moons.forEach((m) => {
+          m.pivot.rotation.y += m.speed * simDelta * 0.8;
+        });
+      });
+
+      if (showBelts && !isPaused && timeMultiplier > 0 && asteroidInstancedMesh) {
+        for (let i = 0; i < asteroidData.length; i++) {
+          const a = asteroidData[i];
+          a.angle += a.speed * 0.06 * simDelta;
+          a.rotX += a.rotSpeedX;
+          a.rotY += a.rotSpeedY;
+          dummyAsteroid.position.set(
+            Math.cos(a.angle) * a.radius,
+            a.y,
+            Math.sin(a.angle) * a.radius,
+          );
+          dummyAsteroid.rotation.set(a.rotX, a.rotY, 0);
+          dummyAsteroid.scale.set(a.scaleX, a.scaleY, a.scaleZ);
+          dummyAsteroid.updateMatrix();
+          asteroidInstancedMesh.setMatrixAt(i, dummyAsteroid.matrix);
+        }
+        asteroidInstancedMesh.instanceMatrix.needsUpdate = true;
+        beltsGroup.rotation.y += 0.004 * simDelta;
+      }
+
+      if (isCockpitMode) {
+        updateSpaceshipFlight(dt);
+      } else {
+        updateKeyboardOrbitalCamera(dt);
+
+        if (isTourMode) {
+          tourTimer += dt;
+          if (tourTimer > 9.0) {
+            tourTimer = 0;
+            tourIndex = (tourIndex + 1) % CELESTIAL_DATA.length;
+            selectCelestialTarget(CELESTIAL_DATA[tourIndex].id);
+          }
+        }
+
+        if (focusedPlanetId && planetObjects[focusedPlanetId]) {
+          const targetObj = planetObjects[focusedPlanetId];
+          targetObj.planetHolder.getWorldPosition(currPlanetWorldPos);
+
+          if (cameraTransition.active) {
+            cameraTransition.progress += dt / cameraTransition.duration;
+            const t = clamp(cameraTransition.progress, 0, 1);
+            const ease = 1 - Math.pow(1 - t, 3);
+
+            const destPos = currPlanetWorldPos.clone().add(cameraTransition.desiredOffset);
+            camera.position.lerpVectors(cameraTransition.startPos, destPos, ease);
+            controls.target.lerpVectors(cameraTransition.startTarget, currPlanetWorldPos, ease);
+
+            if (t >= 1) cameraTransition.active = false;
+          } else {
+            const deltaMove = currPlanetWorldPos.clone().sub(prevPlanetWorldPos);
+            camera.position.add(deltaMove);
+            controls.target.copy(currPlanetWorldPos);
+          }
+        } else if (cameraTransition.active) {
+          cameraTransition.progress += dt / cameraTransition.duration;
+          const t = clamp(cameraTransition.progress, 0, 1);
+          const ease = 1 - Math.pow(1 - t, 3);
+          camera.position.lerpVectors(cameraTransition.startPos, cameraTransition.endPos, ease);
+          controls.target.lerpVectors(
+            cameraTransition.startTarget,
+            cameraTransition.endTarget,
+            ease,
+          );
+          if (t >= 1) cameraTransition.active = false;
+        }
+
+        controls.update();
+      }
+
+      if (showLabels) {
+        const halfW = window.innerWidth / 2;
+        const halfH = window.innerHeight / 2;
+
+        CELESTIAL_DATA.forEach((data) => {
+          const obj = planetObjects[data.id];
+          const lbl = labelElements[data.id];
+          if (!obj || !lbl) return;
+
+          obj.planetHolder.getWorldPosition(tempVec);
+          tempVec.y += data.radius * 1.35;
+          tempVec.project(camera);
+
+          if (tempVec.z > 1.0 || (!isCockpitMode && focusedPlanetId === data.id)) {
+            lbl.style.opacity = '0';
+            lbl.style.pointerEvents = 'none';
+          } else {
+            const x = tempVec.x * halfW + halfW;
+            const y = -(tempVec.y * halfH) + halfH;
+            lbl.style.left = `${x}px`;
+            lbl.style.top = `${y}px`;
+            lbl.style.opacity = '1';
+            lbl.style.pointerEvents = 'auto';
+          }
+        });
+      }
+
+      renderer.render(scene, camera);
+    }
+
+    animate();
+
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(animFrameId);
+      clearTimeout(loaderTimeout);
+      window.removeEventListener('resize', onWindowResize);
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+      renderer.domElement.removeEventListener('pointerdown', onPointerDown);
+      renderer.domElement.removeEventListener('pointerup', onPointerUp);
+      controls.dispose();
+      renderer.dispose();
+    };
+  }, []);
+
+  return (
+    <div ref={rootRef} className="relative h-screen w-screen overflow-hidden bg-[#02040a] select-none">
+      {/* Loading & Procedural Synthesis Overlay */}
+      <div
+        id="loading-screen"
+        className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-[#02040a] transition-opacity duration-700"
+      >
+        <div className="relative w-28 h-28 mb-8 flex items-center justify-center">
+          <div className="absolute inset-0 rounded-full border-2 border-sky-500/20 animate-ping" />
+          <div className="absolute inset-2 rounded-full border-2 border-t-amber-400 border-r-sky-400 border-b-fuchsia-500 border-l-transparent animate-spin" />
+          <div className="w-12 h-12 rounded-full bg-gradient-to-br from-amber-300 via-orange-500 to-red-600 shadow-[0_0_45px_rgba(245,158,11,0.85)] animate-pulse-glow" />
+        </div>
+        <h1 className="font-display text-2xl sm:text-3xl font-bold tracking-[0.22em] text-white uppercase mb-2">
+          Heliosphere <span className="text-sky-400 font-light">v2.0</span>
+        </h1>
+        <p
+          id="loading-status"
+          className="font-mono-tech text-xs sm:text-sm text-slate-400 tracking-widest uppercase mb-6"
+        >
+          Synthesizing Planetary Surfaces, Solar Flares &amp; Deep-Space Nebulae...
+        </p>
+        <div className="w-64 sm:w-80 h-1.5 bg-slate-800/80 rounded-full overflow-hidden border border-slate-700/50">
+          <div
+            id="loading-bar"
+            className="h-full bg-gradient-to-r from-amber-500 via-sky-400 to-fuchsia-500 w-0 transition-all duration-200"
+          />
+        </div>
+      </div>
+
+      {/* WebGL 3D Canvas Container */}
+      <div id="canvas-container" className="fixed inset-0 w-full h-full z-[1]" />
+
+      {/* 3D Floating HTML Labels Container */}
+      <div
+        id="labels-container"
+        className="fixed inset-0 pointer-events-none z-10 overflow-hidden"
+      />
+
+      {/* SCI-FI SPACESHIP COCKPIT HUD OVERLAY */}
+      <div
+        id="cockpit-hud"
+        className="fixed inset-0 z-[15] pointer-events-none hidden cockpit-vignette transition-opacity duration-300"
+      >
+        <svg className="w-full h-full opacity-80" viewBox="0 0 1920 1080" preserveAspectRatio="none">
+          <defs>
+            <linearGradient id="strutGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stopColor="#0f172a" stopOpacity="0.92" />
+              <stop offset="100%" stopColor="#020617" stopOpacity="0.96" />
+            </linearGradient>
+            <linearGradient id="cyanGlow" x1="0%" y1="0%" x2="100%" y2="0%">
+              <stop offset="0%" stopColor="#38bdf8" stopOpacity="0" />
+              <stop offset="50%" stopColor="#38bdf8" stopOpacity="0.75" />
+              <stop offset="100%" stopColor="#38bdf8" stopOpacity="0" />
+            </linearGradient>
+          </defs>
+          <path
+            d="M0,0 L1920,0 L1920,90 L1620,42 L300,42 L0,90 Z"
+            fill="url(#strutGrad)"
+            stroke="#1e293b"
+            strokeWidth="2"
+          />
+          <path d="M0,90 L300,42 L135,920 L0,1080 Z" fill="url(#strutGrad)" opacity="0.45" />
+          <path d="M1920,90 L1620,42 L1785,920 L1920,1080 Z" fill="url(#strutGrad)" opacity="0.45" />
+          <polyline
+            points="300,42 135,920 420,1030"
+            fill="none"
+            stroke="#38bdf8"
+            strokeWidth="1.5"
+            strokeOpacity="0.35"
+          />
+          <polyline
+            points="1620,42 1785,920 1500,1030"
+            fill="none"
+            stroke="#38bdf8"
+            strokeWidth="1.5"
+            strokeOpacity="0.35"
+          />
+          <path
+            d="M0,1080 L135,920 L420,1010 L1500,1010 L1785,920 L1920,1080 Z"
+            fill="url(#strutGrad)"
+            stroke="#334155"
+            strokeWidth="1.5"
+          />
+          <line x1="420" y1="1010" x2="1500" y2="1010" stroke="url(#cyanGlow)" strokeWidth="2" />
+        </svg>
+
+        {/* Central Pitch Ladder, Roll Horizon & Reticle */}
+        <div className="fixed inset-0 flex items-center justify-center">
+          <div className="relative w-80 h-80 flex items-center justify-center">
+            <svg className="w-full h-full opacity-45" viewBox="0 0 200 200">
+              <circle
+                cx="100"
+                cy="100"
+                r="88"
+                fill="none"
+                stroke="#38bdf8"
+                strokeWidth="0.75"
+                strokeDasharray="4 6"
+              />
+              <path
+                d="M100,8 L100,16 M100,184 L100,192 M8,100 L16,100 M184,100 L192,100"
+                stroke="#38bdf8"
+                strokeWidth="1.5"
+              />
+            </svg>
+
+            <div
+              id="hud-horizon-group"
+              className="absolute inset-0 flex items-center justify-center transition-transform duration-75"
+            >
+              <svg className="w-64 h-64" viewBox="0 0 200 200">
+                <line
+                  x1="25"
+                  y1="100"
+                  x2="72"
+                  y2="100"
+                  stroke="#38bdf8"
+                  strokeWidth="1.8"
+                  strokeOpacity="0.8"
+                />
+                <line
+                  x1="128"
+                  y1="100"
+                  x2="175"
+                  y2="100"
+                  stroke="#38bdf8"
+                  strokeWidth="1.8"
+                  strokeOpacity="0.8"
+                />
+                <g
+                  id="hud-pitch-rungs"
+                  stroke="#38bdf8"
+                  strokeWidth="1.2"
+                  strokeOpacity="0.55"
+                  fill="none"
+                >
+                  <path d="M65,70 L82,70 L82,75 M135,70 L118,70 L118,75" />
+                  <path d="M75,45 L86,45 L86,49 M125,45 L114,45 L114,49" />
+                  <path
+                    d="M65,130 L82,130 L82,125 M135,130 L118,130 L118,125"
+                    strokeDasharray="3 2"
+                  />
+                  <path
+                    d="M75,155 L86,155 L86,151 M125,155 L114,155 L114,151"
+                    strokeDasharray="3 2"
+                  />
+                </g>
+              </svg>
+            </div>
+
+            <div className="w-4 h-4 relative flex items-center justify-center">
+              <div className="w-1.5 h-1.5 rounded-full bg-amber-400 shadow-[0_0_10px_#f59e0b]" />
+              <div className="absolute w-6 h-6 rounded-full border border-sky-400/70" />
+            </div>
+          </div>
+        </div>
+
+        {/* 3D Target Lock Box */}
+        <div
+          id="cockpit-target-box"
+          className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-20 h-20 border border-amber-400/80 rounded-lg flex flex-col items-center justify-between p-1 shadow-[0_0_20px_rgba(245,158,11,0.25)] transition-opacity duration-150"
+        >
+          <div className="w-full flex justify-between text-[9px] font-mono-tech text-amber-300 uppercase px-1 bg-slate-950/80 rounded">
+            <span id="cockpit-lock-name">EARTH</span>
+            <span>LOCK</span>
+          </div>
+          <div
+            id="cockpit-lock-dist"
+            className="text-[10px] font-mono

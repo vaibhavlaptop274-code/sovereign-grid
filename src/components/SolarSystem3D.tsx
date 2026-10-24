@@ -3248,4 +3248,605 @@ export default function SolarSystem3D() {
           </div>
           <div
             id="cockpit-lock-dist"
-            className="text-[10px] font-mono
+            className="text-[10px] font-mono-tech font-bold text-sky-300 bg-slate-950/85 px-1.5 py-0.5 rounded border border-sky-500/30 whitespace-nowrap"
+          >
+            0.0 AU
+          </div>
+        </div>
+
+        {/* Left Cockpit Telemetry Module */}
+        <div className="fixed bottom-28 left-4 sm:left-8 w-64 sm:w-72 glass-panel rounded-2xl p-3.5 border-l-2 border-l-sky-400 pointer-events-auto">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[10px] font-mono-tech uppercase tracking-widest text-sky-400 font-semibold">
+              6DOF Flight Propulsion
+            </span>
+            <span
+              id="flight-status-badge"
+              className="text-[10px] font-mono-tech px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"
+            >
+              SUBLIGHT
+            </span>
+          </div>
+
+          <div className="flex items-baseline justify-between mb-2">
+            <div>
+              <div className="text-[10px] font-mono-tech text-slate-400">REL. VELOCITY</div>
+              <div
+                id="cockpit-speed-readout"
+                className="font-display text-xl sm:text-2xl font-bold text-white"
+              >
+                0.0 <span className="text-xs font-mono-tech text-sky-400">km/s</span>
+              </div>
+            </div>
+            <div className="text-right">
+              <div className="text-[10px] font-mono-tech text-slate-400">PITCH INVERT</div>
+              <button
+                onClick={() => actionsRef.current?.toggleInvertPitch()}
+                className="text-[11px] font-mono-tech text-slate-300 hover:text-sky-300"
+              >
+                <span id="pitch-invert-label">STD</span> <span className="kbd-badge">I</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="mb-2.5">
+            <div className="flex justify-between text-[10px] font-mono-tech text-slate-400 mb-1">
+              <span>THRUST OUTPUT [W/S | SHIFT]</span>
+              <span id="cockpit-throttle-pct" className="text-sky-300">
+                0%
+              </span>
+            </div>
+            <div className="w-full h-2 bg-slate-900 rounded-full overflow-hidden border border-slate-700/70">
+              <div
+                id="cockpit-throttle-bar"
+                className="h-full bg-gradient-to-r from-sky-500 via-cyan-400 to-amber-400 w-0 transition-all duration-75"
+              />
+            </div>
+          </div>
+
+          <div>
+            <div className="flex justify-between text-[10px] font-mono-tech text-slate-400 mb-1">
+              <span>WARP CAPACITOR [HOLD SPACE]</span>
+              <span id="cockpit-warp-pct" className="text-fuchsia-300">
+                100%
+              </span>
+            </div>
+            <div className="w-full h-2 bg-slate-900 rounded-full overflow-hidden border border-slate-700/70">
+              <div
+                id="cockpit-warp-bar"
+                className="h-full bg-gradient-to-r from-indigo-500 via-fuchsia-500 to-pink-400 w-full transition-all duration-75"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Right Cockpit Navigation & Autopilot Module */}
+        <div className="fixed bottom-28 right-4 sm:right-8 w-64 sm:w-72 glass-panel rounded-2xl p-3.5 border-r-2 border-r-amber-400 pointer-events-auto">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[10px] font-mono-tech uppercase tracking-widest text-amber-400 font-semibold">
+              Nav Computer &amp; Autopilot
+            </span>
+            <span className="text-[10px] font-mono-tech text-slate-400">[ [ / ] ] CYCLE</span>
+          </div>
+
+          <div className="bg-slate-900/75 border border-slate-800 rounded-xl p-2.5 mb-2.5">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-mono-tech text-slate-400">NAV WAYPOINT</span>
+              <span id="nav-target-type" className="text-[9px] font-mono-tech text-amber-300 uppercase">
+                PLANET
+              </span>
+            </div>
+            <div id="nav-target-name" className="font-display text-lg font-bold text-white truncate">
+              Earth
+            </div>
+            <div className="flex items-center justify-between mt-1 text-[11px] font-mono-tech">
+              <span className="text-slate-400">RANGE:</span>
+              <span id="nav-target-dist" className="text-sky-300 font-semibold">
+                0.00 AU
+              </span>
+            </div>
+          </div>
+
+          <div className="flex gap-2">
+            <button
+              onClick={() => actionsRef.current?.toggleAutopilot()}
+              id="btn-autopilot"
+              className="glass-pill flex-1 py-2 px-3 rounded-xl text-xs font-medium text-slate-200 flex items-center justify-center gap-1.5"
+            >
+              <span>Autopilot Fly-To</span>
+              <span className="kbd-badge">G</span>
+            </button>
+            <button
+              onClick={() => actionsRef.current?.zeroShipVelocity()}
+              className="glass-pill py-2 px-2.5 rounded-xl text-xs font-medium text-slate-300"
+              title="Full All-Stop Brake"
+            >
+              <span>Stop</span>
+              <span className="kbd-badge">X</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* SOLAR WEATHER / X-CLASS FLARE ALERT BANNER */}
+      <div
+        id="solar-flare-banner"
+        className="fixed top-20 left-1/2 -translate-x-1/2 z-30 pointer-events-none opacity-0 -translate-y-4 transition-all duration-300"
+      >
+        <div className="glass-panel border-amber-500/80 bg-amber-950/70 px-4 py-2 rounded-2xl flex items-center gap-3 shadow-[0_0_30px_rgba(245,158,11,0.45)]">
+          <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping" />
+          <div className="font-mono-tech text-xs text-amber-200 tracking-wider uppercase">
+            <strong className="text-white">SOLAR WEATHER ALERT:</strong> X-Class Coronal Mass
+            Ejection (CME) Eruption Active!
+          </div>
+        </div>
+      </div>
+
+      {/* TOP NAVIGATION & TELEMETRY HEADER */}
+      <header className="fixed top-0 left-0 right-0 z-20 p-3 sm:p-4 pointer-events-none flex flex-col xl:flex-row items-start xl:items-center justify-between gap-2.5">
+        <div className="glass-panel rounded-2xl px-3.5 py-2 pointer-events-auto flex items-center gap-3.5">
+          <div className="flex items-center gap-3">
+            <div className="relative flex items-center justify-center w-8 h-8 rounded-full bg-amber-500/20 border border-amber-400/50">
+              <div className="w-3.5 h-3.5 rounded-full bg-amber-400 shadow-[0_0_12px_#f59e0b]" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="font-display font-bold text-sm sm:text-base tracking-wider text-white">
+                  HELIOSPHERE
+                </span>
+                <span
+                  id="mode-indicator-pill"
+                  className="text-[10px] font-mono-tech uppercase px-2 py-0.5 rounded bg-sky-500/20 text-sky-300 border border-sky-400/40"
+                >
+                  ORBITAL MODE
+                </span>
+              </div>
+              <div className="text-[11px] text-slate-400 flex items-center gap-2 font-mono-tech">
+                <span id="sim-date-display">2026-10-21</span>
+                <span className="text-slate-600">|</span>
+                <span id="active-target-indicator" className="text-sky-400">
+                  TARGET: SOL SYSTEM
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-1.5 pointer-events-auto">
+          <div className="glass-panel rounded-2xl p-1.5 flex items-center gap-1.5">
+            <button
+              onClick={() => actionsRef.current?.toggleFlightMode()}
+              id="btn-cockpit-mode"
+              className="glass-pill px-3 py-1.5 rounded-xl text-xs font-semibold text-amber-300 border-amber-500/40 flex items-center gap-1.5"
+            >
+              <svg
+                className="w-3.5 h-3.5"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                viewBox="0 0 24 24"
+              >
+                <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
+              </svg>
+              <span>Cockpit Mode</span>
+              <span className="kbd-badge">C</span>
+            </button>
+
+            <button
+              onClick={() => actionsRef.current?.triggerSolarFlareCME(true)}
+              id="btn-solar-flare"
+              className="glass-pill px-2.5 py-1.5 rounded-xl text-xs font-medium text-orange-300 flex items-center gap-1.5"
+              title="Trigger X-Class Solar Flare & Coronal Mass Ejection"
+            >
+              <svg
+                className="w-3.5 h-3.5 text-orange-400"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                viewBox="0 0 24 24"
+              >
+                <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
+              </svg>
+              <span className="hidden sm:inline">CME Flare</span>
+              <span className="kbd-badge">X</span>
+            </button>
+          </div>
+
+          <div className="glass-panel rounded-2xl p-1.5 flex items-center gap-1">
+            <button
+              onClick={() => actionsRef.current?.setCameraPreset('overview')}
+              id="preset-overview"
+              className="glass-pill active px-2.5 py-1.5 rounded-xl text-xs font-medium text-slate-200 flex items-center gap-1.5"
+            >
+              <span className="hidden sm:inline">Overview</span>
+              <span className="kbd-badge">9</span>
+            </button>
+            <button
+              onClick={() => actionsRef.current?.setCameraPreset('topdown')}
+              id="preset-topdown"
+              className="glass-pill px-2.5 py-1.5 rounded-xl text-xs font-medium text-slate-200 flex items-center gap-1.5"
+            >
+              <span className="hidden md:inline">Ecliptic</span>
+              <span className="kbd-badge">V</span>
+            </button>
+            <button
+              onClick={() => actionsRef.current?.toggleTourMode()}
+              id="preset-tour"
+              className="glass-pill px-2.5 py-1.5 rounded-xl text-xs font-medium text-slate-200 flex items-center gap-1.5"
+            >
+              <span className="hidden sm:inline">Tour</span>
+              <span className="kbd-badge">T</span>
+            </button>
+          </div>
+
+          <div className="glass-panel rounded-2xl p-1.5 flex items-center gap-1">
+            <button
+              onClick={() => actionsRef.current?.toggleOrbits()}
+              id="btn-orbits"
+              className="glass-pill active px-2 py-1.5 rounded-xl text-xs font-medium text-slate-200 flex items-center gap-1"
+            >
+              <span>Orbits</span>
+              <span className="kbd-badge">O</span>
+            </button>
+            <button
+              onClick={() => actionsRef.current?.toggleLabels()}
+              id="btn-labels"
+              className="glass-pill active px-2 py-1.5 rounded-xl text-xs font-medium text-slate-200 flex items-center gap-1"
+            >
+              <span>Labels</span>
+              <span className="kbd-badge">L</span>
+            </button>
+            <button
+              onClick={() => actionsRef.current?.toggleAsteroids()}
+              id="btn-asteroids"
+              className="glass-pill active px-2 py-1.5 rounded-xl text-xs font-medium text-slate-200 flex items-center gap-1"
+            >
+              <span>Belts</span>
+              <span className="kbd-badge">B</span>
+            </button>
+            <button
+              onClick={() => actionsRef.current?.toggleKeyboardHelp()}
+              id="btn-help"
+              className="glass-pill active px-2.5 py-1.5 rounded-xl text-xs font-semibold text-sky-300 flex items-center gap-1"
+            >
+              <span>Keys</span>
+              <span className="kbd-badge">H</span>
+            </button>
+          </div>
+        </div>
+      </header>
+
+      {/* COLLAPSIBLE KEYBOARD CONTROLS CHEAT-SHEET HUD */}
+      <aside
+        id="keyboard-help-panel"
+        className="fixed top-20 left-3 sm:left-4 z-20 w-72 sm:w-80 glass-panel rounded-2xl p-3.5 text-xs transition-all duration-300 pointer-events-auto"
+      >
+        <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-700/70">
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-sky-400" />
+            <span className="font-display font-bold text-white tracking-wide uppercase text-xs">
+              Keyboard Flight &amp; Nav Deck
+            </span>
+          </div>
+          <button
+            onClick={() => actionsRef.current?.toggleKeyboardHelp()}
+            className="text-slate-400 hover:text-white text-[11px] font-mono-tech"
+          >
+            HIDE <span className="kbd-badge">H</span>
+          </button>
+        </div>
+
+        <div id="help-orbital-section" className="space-y-1.5 text-[11px]">
+          <div className="text-[10px] font-mono-tech uppercase text-sky-400 font-semibold">
+            Orbital Camera Controls (No Mouse)
+          </div>
+          <div className="flex justify-between text-slate-300">
+            <span>Orbit Camera Around</span>
+            <span>
+              <kbd className="kbd-badge">Arrows</kbd> or <kbd className="kbd-badge">WASD</kbd>
+            </span>
+          </div>
+          <div className="flex justify-between text-slate-300">
+            <span>Zoom In / Out</span>
+            <span>
+              <kbd className="kbd-badge">R</kbd>
+              <kbd className="kbd-badge">F</kbd> or <kbd className="kbd-badge">+</kbd>
+              <kbd className="kbd-badge">-</kbd>
+            </span>
+          </div>
+          <div className="flex justify-between text-slate-300">
+            <span>Select Sun / Planets</span>
+            <span>
+              <kbd className="kbd-badge">0</kbd> - <kbd className="kbd-badge">8</kbd>
+            </span>
+          </div>
+          <div className="flex justify-between text-slate-300">
+            <span>Cycle All 13 Targets</span>
+            <span>
+              <kbd className="kbd-badge">[</kbd> / <kbd className="kbd-badge">]</kbd>
+            </span>
+          </div>
+          <div className="flex justify-between text-slate-300">
+            <span>Close Surface Zoom</span>
+            <span>
+              <kbd className="kbd-badge">Z</kbd>
+            </span>
+          </div>
+        </div>
+
+        <div id="help-cockpit-section" className="space-y-1.5 text-[11px] hidden">
+          <div className="text-[10px] font-mono-tech uppercase text-amber-400 font-semibold">
+            6DOF Spaceship Flight Controls
+          </div>
+          <div className="flex justify-between text-slate-300">
+            <span>Pitch &amp; Yaw Attitude</span>
+            <span>
+              <kbd className="kbd-badge">Arrow Keys</kbd>
+            </span>
+          </div>
+          <div className="flex justify-between text-slate-300">
+            <span>Roll Bank Left / Right</span>
+            <span>
+              <kbd className="kbd-badge">Q</kbd> / <kbd className="kbd-badge">E</kbd>
+            </span>
+          </div>
+          <div className="flex justify-between text-slate-300">
+            <span>Main Thrusters / Retro</span>
+            <span>
+              <kbd className="kbd-badge">W</kbd> / <kbd className="kbd-badge">S</kbd>
+            </span>
+          </div>
+          <div className="flex justify-between text-slate-300">
+            <span>Strafe Left/Right/Up/Dn</span>
+            <span>
+              <kbd className="kbd-badge">A</kbd>
+              <kbd className="kbd-badge">D</kbd> / <kbd className="kbd-badge">R</kbd>
+              <kbd className="kbd-badge">F</kbd>
+            </span>
+          </div>
+          <div className="flex justify-between text-slate-300">
+            <span>Afterburner / WARP DRIVE</span>
+            <span>
+              <kbd className="kbd-badge">Shift</kbd> / <kbd className="kbd-badge">Space</kbd>
+            </span>
+          </div>
+          <div className="flex justify-between text-slate-300">
+            <span>Autopilot Fly-To Target</span>
+            <span>
+              <kbd className="kbd-badge">G</kbd>
+            </span>
+          </div>
+        </div>
+
+        <div className="mt-2.5 pt-2 border-t border-slate-800 space-y-1 text-[11px]">
+          <div className="text-[10px] font-mono-tech uppercase text-fuchsia-400 font-semibold">
+            Global Simulation Shortcuts
+          </div>
+          <div className="flex justify-between text-slate-300">
+            <span>Switch Cockpit / Orbit</span>
+            <span>
+              <kbd className="kbd-badge">C</kbd>
+            </span>
+          </div>
+          <div className="flex justify-between text-slate-300">
+            <span>Trigger Solar CME Flare</span>
+            <span>
+              <kbd className="kbd-badge">X</kbd>
+            </span>
+          </div>
+          <div className="flex justify-between text-slate-300">
+            <span>Pause / Time Speed</span>
+            <span>
+              <kbd className="kbd-badge">P</kbd> | <kbd className="kbd-badge">,</kbd>{' '}
+              <kbd className="kbd-badge">.</kbd>
+            </span>
+          </div>
+        </div>
+      </aside>
+
+      {/* RIGHT-SIDE PLANET & DEEP-SPACE TELEMETRY HUD CARD */}
+      <aside
+        id="telemetry-panel"
+        className="fixed top-20 right-3 sm:right-4 z-20 w-[calc(100vw-1.5rem)] sm:w-96 max-h-[calc(100vh-12rem)] glass-panel rounded-3xl p-4 sm:p-5 flex flex-col transition-all duration-500 transform translate-x-[120%] opacity-0 pointer-events-none overflow-hidden"
+      >
+        <div className="flex items-start justify-between gap-3 pb-3 border-b border-slate-700/60">
+          <div>
+            <div className="flex items-center gap-2">
+              <span
+                id="hud-classification"
+                className="text-[10px] font-mono-tech uppercase tracking-widest px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-300 border border-sky-500/30"
+              >
+                Terrestrial Planet
+              </span>
+              <span id="hud-order" className="text-[11px] font-mono-tech text-slate-400">
+                #03 FROM SUN
+              </span>
+            </div>
+            <h2
+              id="hud-name"
+              className="font-display text-2xl sm:text-3xl font-bold text-white mt-1 tracking-tight"
+            >
+              Earth
+            </h2>
+          </div>
+          <button
+            onClick={() => actionsRef.current?.releaseFocus()}
+            className="glass-pill px-2 py-1.5 rounded-xl text-slate-400 hover:text-white flex items-center gap-1"
+            title="Exit Target Lock [Esc]"
+          >
+            <span className="kbd-badge">Esc</span>
+          </button>
+        </div>
+
+        <div className="overflow-y-auto thin-scrollbar pr-1 my-3 space-y-3.5 text-xs sm:text-sm">
+          <p id="hud-description" className="text-slate-300 leading-relaxed text-xs sm:text-[13px]">
+            Our home world and the only known astronomical object to harbor life.
+          </p>
+
+          <div className="grid grid-cols-2 gap-2">
+            <div className="bg-slate-900/70 border border-slate-800/90 rounded-2xl p-2.5">
+              <div className="text-[10px] font-mono-tech uppercase text-slate-400">
+                Mean Diameter / Span
+              </div>
+              <div id="hud-diameter" className="font-display text-sm font-semibold text-white mt-0.5">
+                12,742 km
+              </div>
+            </div>
+            <div className="bg-slate-900/70 border border-slate-800/90 rounded-2xl p-2.5">
+              <div className="text-[10px] font-mono-tech uppercase text-slate-400">
+                Heliocentric Dist
+              </div>
+              <div
+                id="hud-distance"
+                className="font-display text-sm font-semibold text-sky-300 mt-0.5"
+              >
+                1.00 AU
+              </div>
+            </div>
+            <div className="bg-slate-900/70 border border-slate-800/90 rounded-2xl p-2.5">
+              <div className="text-[10px] font-mono-tech uppercase text-slate-400">
+                Orbital Period
+              </div>
+              <div id="hud-orbit" className="font-display text-sm font-semibold text-white mt-0.5">
+                365.25 Days
+              </div>
+            </div>
+            <div className="bg-slate-900/70 border border-slate-800/90 rounded-2xl p-2.5">
+              <div className="text-[10px] font-mono-tech uppercase text-slate-400">
+                Effective Temp
+              </div>
+              <div
+                id="hud-temp"
+                className="font-display text-sm font-semibold text-amber-300 mt-0.5"
+              >
+                15°C Mean
+              </div>
+            </div>
+            <div className="bg-slate-900/70 border border-slate-800/90 rounded-2xl p-2.5">
+              <div className="text-[10px] font-mono-tech uppercase text-slate-400">
+                Moons / Structure
+              </div>
+              <div id="hud-moons" className="font-display text-sm font-semibold text-white mt-0.5">
+                1 (Luna)
+              </div>
+            </div>
+            <div className="bg-slate-900/70 border border-slate-800/90 rounded-2xl p-2.5">
+              <div className="text-[10px] font-mono-tech uppercase text-slate-400">
+                Spin / Obliquity
+              </div>
+              <div
+                id="hud-rotation"
+                className="font-display text-sm font-semibold text-indigo-300 mt-0.5"
+              >
+                23.9h / 23.4°
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-slate-900/60 border border-slate-800/90 rounded-2xl p-3">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[10px] font-mono-tech uppercase text-slate-400">
+                Spectral &amp; Atmospheric Profile
+              </span>
+              <span id="hud-gravity" className="text-[11px] font-mono-tech text-sky-400">
+                9.8 m/s²
+              </span>
+            </div>
+            <div id="hud-atmosphere" className="text-xs text-slate-200 font-medium">
+              78% Nitrogen, 21% Oxygen, 1% Argon
+            </div>
+          </div>
+        </div>
+
+        <div className="pt-2.5 border-t border-slate-700/60 flex items-center justify-between gap-1.5">
+          <button
+            onClick={() => actionsRef.current?.stepPlanet(-1)}
+            className="glass-pill py-2 px-2.5 rounded-xl text-xs font-medium text-slate-200 flex items-center gap-1"
+          >
+            <span className="kbd-badge">[</span>
+            <span>Prev</span>
+          </button>
+          <button
+            onClick={() => actionsRef.current?.zoomToSurface()}
+            className="glass-pill flex-1 py-2 px-2.5 rounded-xl text-xs font-medium text-sky-300 flex items-center justify-center gap-1.5"
+          >
+            <span>Surface Zoom</span>
+            <span className="kbd-badge">Z</span>
+          </button>
+          <button
+            onClick={() => actionsRef.current?.stepPlanet(1)}
+            className="glass-pill py-2 px-2.5 rounded-xl text-xs font-medium text-slate-200 flex items-center gap-1"
+          >
+            <span>Next</span>
+            <span className="kbd-badge">]</span>
+          </button>
+        </div>
+      </aside>
+
+      {/* BOTTOM INTERACTIVE DOCK: TIME WARP + ALL CELESTIAL TARGETS BAR */}
+      <footer className="fixed bottom-0 left-0 right-0 z-20 p-2.5 sm:p-4 pointer-events-none flex flex-col items-center gap-2">
+        <div className="glass-panel rounded-2xl px-3.5 py-1.5 pointer-events-auto flex flex-wrap items-center justify-center gap-3">
+          <button
+            onClick={() => actionsRef.current?.togglePause()}
+            id="btn-pause"
+            className="glass-pill px-2.5 py-1 rounded-xl flex items-center gap-1.5 text-sky-400 text-xs"
+            title="Pause / Resume Orbital Motion [P]"
+          >
+            <svg id="icon-pause" className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
+              <rect x="6" y="4" width="4" height="16" rx="1" />
+              <rect x="14" y="4" width="4" height="16" rx="1" />
+            </svg>
+            <svg
+              id="icon-play"
+              className="w-3.5 h-3.5 hidden"
+              fill="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <polygon points="6 4 20 12 6 20 6 4" />
+            </svg>
+            <span className="kbd-badge">P</span>
+          </button>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => actionsRef.current?.adjustTimeSpeed(-1)}
+              className="glass-pill px-1.5 py-0.5 rounded text-xs text-slate-300"
+              title="Slower [,]"
+            >
+              <span className="kbd-badge">,</span>
+            </button>
+            <span className="text-[10px] font-mono-tech uppercase tracking-wider text-slate-400 hidden sm:inline">
+              Orbital Warp
+            </span>
+            <input
+              id="time-slider"
+              type="range"
+              min="0"
+              max="100"
+              defaultValue="25"
+              className="cosmic-slider w-20 sm:w-28"
+              onChange={(e) => actionsRef.current?.onTimeSliderChange(e.target.value)}
+            />
+            <button
+              onClick={() => actionsRef.current?.adjustTimeSpeed(1)}
+              className="glass-pill px-1.5 py-0.5 rounded text-xs text-slate-300"
+              title="Faster [.]"
+            >
+              <span className="kbd-badge">.</span>
+            </button>
+            <span
+              id="speed-readout"
+              className="font-mono-tech text-xs font-semibold text-sky-300 w-12 text-right"
+            >
+              1.0x
+            </span>
+          </div>
+        </div>
+
+        <div className="glass-panel rounded-2xl p-1.5 pointer-events-auto max-w-full overflow-x-auto no-scrollbar flex items-center gap-1.5">
+          <div id="planet-dock" className="flex items-center gap-1.5 px-1" />
+        </div>
+      </footer>
+    </div>
+  );
+}

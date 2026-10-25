@@ -206,6 +206,43 @@ interface CharacterRig {
   selectionRing: THREE.Mesh;
 }
 
+
+function createCharacterNameplateSprite(name: string, subtitle: string, accentHex: string) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 128;
+  const ctx = canvas.getContext('2d')!;
+
+  // Rounded dark glass pill background
+  ctx.fillStyle = 'rgba(6, 10, 22, 0.82)';
+  ctx.strokeStyle = accentHex;
+  ctx.lineWidth = 6;
+  ctx.beginPath();
+  ctx.roundRect(16, 16, 480, 96, 28);
+  ctx.fill();
+  ctx.stroke();
+
+  // Character Name
+  ctx.font = 'bold 42px "Space Grotesk", sans-serif';
+  ctx.fillStyle = '#ffffff';
+  ctx.textAlign = 'center';
+  ctx.fillText(name.toUpperCase(), 256, 64);
+
+  // Skill Subtitle
+  ctx.font = '600 24px "JetBrains Mono", monospace';
+  ctx.fillStyle = accentHex;
+  ctx.fillText(subtitle.toUpperCase(), 256, 96);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const sprite = new THREE.Sprite(
+    new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }),
+  );
+  sprite.scale.set(1.9, 0.48, 1);
+  sprite.position.set(0, 1.85, 0);
+  return sprite;
+}
+
 function buildFreeFireCharacterRig(charId: CharacterId): CharacterRig {
   const isAlok = charId === 'alok';
 
@@ -214,7 +251,7 @@ function buildFreeFireCharacterRig(charId: CharacterId): CharacterRig {
   root.add(facingGroup);
 
   // Scale character to fit harmoniously alongside village buildings while showing rich detail
-  const charScale = 0.56;
+  const charScale = 0.78; // Prominent Free Fire 3rd-person hero scale
   const bodyPivot = new THREE.Group();
   bodyPivot.scale.setScalar(charScale);
   facingGroup.add(bodyPivot);
@@ -741,6 +778,13 @@ function buildFreeFireCharacterRig(charId: CharacterId): CharacterRig {
   selectionRing.rotation.x = -Math.PI / 2;
   selectionRing.position.y = 0.03;
   root.add(selectionRing);
+
+  const nameplate = createCharacterNameplateSprite(
+    isAlok ? '★ DJ ALOK' : '⚡ KELLY',
+    isAlok ? 'DROP THE BEAT' : 'DEADLY VELOCITY',
+    isAlok ? '#f59e0b' : '#facc15',
+  );
+  root.add(nameplate);
 
   return {
     id: charId,
@@ -1545,7 +1589,7 @@ function EarthBase3DView({ onExitToSpace }: { onExitToSpace: () => void }) {
         startTarget: controls.target.clone(),
         endPos:
           mode === 'character'
-            ? charTf.position.clone().add(new THREE.Vector3(0, 4.2, 7.8))
+            ? charTf.position.clone().add(new THREE.Vector3(0, 2.4, 5.2))
             : mode === 'village'
               ? new THREE.Vector3(0, R_VILLAGE + 19, 28)
               : new THREE.Vector3(0, 40, 148),
@@ -1661,7 +1705,7 @@ function EarthBase3DView({ onExitToSpace }: { onExitToSpace: () => void }) {
     let diveProgress = 0;
     const diveDuration = 1.65;
     const startCamPos = new THREE.Vector3(0, R_PLANET + 115, 95);
-    const targetInitialCamPos = new THREE.Vector3(0, R_VILLAGE + 4.8, 10.5);
+    const targetInitialCamPos = new THREE.Vector3(0, R_VILLAGE + 2.6, 6.2);
 
     let animId = 0;
     function animate() {

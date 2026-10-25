@@ -1,9 +1,27 @@
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { Rocket, Hammer, Shield, Coins, Droplets, Sparkles, Compass, Globe2, MapPin } from 'lucide-react';
+import {
+  Rocket,
+  Hammer,
+  Shield,
+  Coins,
+  Droplets,
+  Sparkles,
+  Compass,
+  Globe2,
+  MapPin,
+  User,
+  Zap,
+  Music,
+  Heart,
+  Footprints,
+  Moon,
+  ArrowUp,
+  Smile,
+} from 'lucide-react';
 
-/* ---------- 0. CLASH OF CLANS 3D SPHERICAL EARTH BASE DATA & VIEW ---------- */
+/* ---------- 0. CLASH OF CLANS + FREE FIRE 3D SPHERICAL EARTH BASE & CHARACTER SYSTEM ---------- */
 
 export interface BaseEntity {
   id: string;
@@ -15,6 +33,46 @@ export interface BaseEntity {
   size: number;
   description: string;
 }
+
+export type CharacterId = 'alok' | 'kelly';
+export type CharacterPosture = 'stand' | 'sit' | 'sleep';
+
+export interface FreeFireCharacterSpec {
+  id: CharacterId;
+  name: string;
+  title: string;
+  skillName: string;
+  skillDesc: string;
+  accentColor: string;
+  secondaryColor: string;
+  baseSpeed: number;
+  sprintBonus: number;
+}
+
+const FREE_FIRE_CHARACTERS: Record<CharacterId, FreeFireCharacterSpec> = {
+  alok: {
+    id: 'alok',
+    name: 'DJ Alok',
+    title: 'World Famous DJ',
+    skillName: 'Drop the Beat',
+    skillDesc: 'Creates a 5m musical aura that boosts movement speed by 15% and restores HP.',
+    accentColor: '#f59e0b',
+    secondaryColor: '#d946ef',
+    baseSpeed: 6.2,
+    sprintBonus: 1.45,
+  },
+  kelly: {
+    id: 'kelly',
+    name: 'Kelly "The Swift"',
+    title: 'Awakened Sprinter',
+    skillName: 'Deadly Velocity',
+    skillDesc: 'Unleashes a golden lightning dash that boosts sprinting speed by 25%.',
+    accentColor: '#facc15',
+    secondaryColor: '#38bdf8',
+    baseSpeed: 7.0,
+    sprintBonus: 1.65,
+  },
+};
 
 const INITIAL_BASE_ENTITIES: BaseEntity[] = [
   {
@@ -75,7 +133,7 @@ const INITIAL_BASE_ENTITIES: BaseEntity[] = [
     gridX: -4,
     gridZ: 4,
     size: 3,
-    description: 'Open-air muster ground where your troops gather around the watchfire.',
+    description: 'Open-air muster ground where your heroes and troops gather around the watchfire.',
   },
   {
     id: 'obs_pine_1',
@@ -120,18 +178,649 @@ const INITIAL_BASE_ENTITIES: BaseEntity[] = [
 ];
 
 // Spherical Planet Constants
-const R_PLANET = 52.0;          // Base Sea-Level Radius of the 3D Spherical Earth
+const R_PLANET = 52.0;             // Base Sea-Level Radius of the 3D Spherical Earth
 const R_VILLAGE = R_PLANET + 1.25; // Raised Continental Plateau Radius for the Starter Base
-const TILE_ANGLE = 0.0175;      // Angular step per Clash of Clans grid tile on the sphere
+const TILE_ANGLE = 0.0175;         // Angular step per Clash of Clans grid tile on the sphere
 const TILE_WORLD = R_VILLAGE * TILE_ANGLE; // ~0.93 world units per tile
-const GRID_TILES = 16;          // 16x16 curved Clash of Clans village clearing
+const GRID_TILES = 16;             // 16x16 curved Clash of Clans village clearing
+
+/* ---------- ARTICULATED 3D FREE FIRE CHARACTER RIG BUILDER ---------- */
+
+interface CharacterRig {
+  id: CharacterId;
+  root: THREE.Group;
+  facingGroup: THREE.Group;
+  bodyPivot: THREE.Group;
+  torsoGroup: THREE.Group;
+  headGroup: THREE.Group;
+  leftShoulder: THREE.Group;
+  leftElbow: THREE.Group;
+  rightShoulder: THREE.Group;
+  rightElbow: THREE.Group;
+  leftHip: THREE.Group;
+  leftKnee: THREE.Group;
+  rightHip: THREE.Group;
+  rightKnee: THREE.Group;
+  skillAuraGroup: THREE.Group;
+  sleepZzzGroup: THREE.Group;
+  selectionRing: THREE.Mesh;
+}
+
+function buildFreeFireCharacterRig(charId: CharacterId): CharacterRig {
+  const isAlok = charId === 'alok';
+
+  const root = new THREE.Group();
+  const facingGroup = new THREE.Group();
+  root.add(facingGroup);
+
+  // Scale character to fit harmoniously alongside village buildings while showing rich detail
+  const charScale = 0.56;
+  const bodyPivot = new THREE.Group();
+  bodyPivot.scale.setScalar(charScale);
+  facingGroup.add(bodyPivot);
+
+  // Materials
+  const skinMat = new THREE.MeshStandardMaterial({
+    color: isAlok ? 0xd99b72 : 0xf2bfa0,
+    roughness: 0.65,
+  });
+
+  /* --- 1. PELVIS & TORSO --- */
+  const pelvisGroup = new THREE.Group();
+  pelvisGroup.position.y = 1.05;
+  bodyPivot.add(pelvisGroup);
+
+  const pelvisMesh = new THREE.Mesh(
+    new THREE.BoxGeometry(0.56, 0.26, 0.34),
+    new THREE.MeshStandardMaterial({
+      color: isAlok ? 0x1e293b : 0x111827,
+      roughness: 0.75,
+    }),
+  );
+  pelvisMesh.castShadow = true;
+  pelvisGroup.add(pelvisMesh);
+
+  // Tactical Belt & Buckle
+  const beltMesh = new THREE.Mesh(
+    new THREE.BoxGeometry(0.58, 0.09, 0.36),
+    new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.5 }),
+  );
+  beltMesh.position.y = 0.1;
+  pelvisGroup.add(beltMesh);
+
+  const buckleMesh = new THREE.Mesh(
+    new THREE.BoxGeometry(0.14, 0.1, 0.04),
+    new THREE.MeshStandardMaterial({
+      color: 0xfacc15,
+      metalness: 0.8,
+      roughness: 0.2,
+    }),
+  );
+  buckleMesh.position.set(0, 0.1, 0.18);
+  pelvisGroup.add(buckleMesh);
+
+  const torsoGroup = new THREE.Group();
+  torsoGroup.position.y = 0.14;
+  pelvisGroup.add(torsoGroup);
+
+  if (isAlok) {
+    // DJ Alok Inner Black Graphic Tee
+    const innerShirt = new THREE.Mesh(
+      new THREE.BoxGeometry(0.58, 0.78, 0.34),
+      new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.8 }),
+    );
+    innerShirt.position.y = 0.4;
+    innerShirt.castShadow = true;
+    torsoGroup.add(innerShirt);
+
+    // Glowing Equalizer Bars on Alok's Chest Tee
+    const eqColors = [0x38bdf8, 0xfacc15, 0xd946ef, 0x38bdf8, 0xfacc15];
+    for (let i = 0; i < 5; i++) {
+      const barH = 0.12 + (i % 2) * 0.1 + (i === 2 ? 0.16 : 0);
+      const eqBar = new THREE.Mesh(
+        new THREE.BoxGeometry(0.045, barH, 0.02),
+        new THREE.MeshBasicMaterial({ color: eqColors[i] }),
+      );
+      eqBar.position.set((i - 2) * 0.06, 0.48, 0.175);
+      torsoGroup.add(eqBar);
+    }
+
+    // DJ Alok Signature White & Gold Open DJ Vest/Jacket Panels
+    const vestMat = new THREE.MeshStandardMaterial({
+      color: 0xf8fafc,
+      roughness: 0.45,
+      metalness: 0.1,
+    });
+    const goldTrimMat = new THREE.MeshStandardMaterial({
+      color: 0xf59e0b,
+      metalness: 0.75,
+      roughness: 0.25,
+    });
+
+    const leftVest = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.82, 0.38), vestMat);
+    leftVest.position.set(0.21, 0.41, 0.01);
+    leftVest.castShadow = true;
+    torsoGroup.add(leftVest);
+
+    const rightVest = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.82, 0.38), vestMat);
+    rightVest.position.set(-0.21, 0.41, 0.01);
+    rightVest.castShadow = true;
+    torsoGroup.add(rightVest);
+
+    const backVest = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.82, 0.12), vestMat);
+    backVest.position.set(0, 0.41, -0.14);
+    backVest.castShadow = true;
+    torsoGroup.add(backVest);
+
+    // Gold Lapel Stripes & High Popped Collar
+    const leftGoldStripe = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.82, 0.4), goldTrimMat);
+    leftGoldStripe.position.set(0.11, 0.41, 0.01);
+    torsoGroup.add(leftGoldStripe);
+
+    const rightGoldStripe = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.82, 0.4), goldTrimMat);
+    rightGoldStripe.position.set(-0.11, 0.41, 0.01);
+    torsoGroup.add(rightGoldStripe);
+
+    const collar = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.24, 0.24, 0.22, 16, 1, true, Math.PI * 0.25, Math.PI * 1.5),
+      vestMat,
+    );
+    collar.position.set(0, 0.86, -0.02);
+    torsoGroup.add(collar);
+
+    // DJ Headphones resting around Alok's neck
+    const headphoneBand = new THREE.Mesh(
+      new THREE.TorusGeometry(0.22, 0.035, 8, 20, Math.PI * 1.3),
+      new THREE.MeshStandardMaterial({ color: 0x1e293b, metalness: 0.5, roughness: 0.4 }),
+    );
+    headphoneBand.rotation.x = Math.PI / 2;
+    headphoneBand.rotation.z = Math.PI * 0.85;
+    headphoneBand.position.set(0, 0.82, 0.02);
+    torsoGroup.add(headphoneBand);
+
+    const earCupGeo = new THREE.CylinderGeometry(0.09, 0.09, 0.06, 16);
+    const leftCup = new THREE.Mesh(earCupGeo, goldTrimMat);
+    leftCup.rotation.z = Math.PI / 2;
+    leftCup.position.set(0.2, 0.82, 0.12);
+    torsoGroup.add(leftCup);
+
+    const rightCup = new THREE.Mesh(earCupGeo, goldTrimMat);
+    rightCup.rotation.z = Math.PI / 2;
+    rightCup.position.set(-0.2, 0.82, 0.12);
+    torsoGroup.add(rightCup);
+  } else {
+    // KELLY ("The Swift"): Iconic Bright Yellow Track Jacket + Black/White Racing Stripes + Crop Top
+    const cropTop = new THREE.Mesh(
+      new THREE.BoxGeometry(0.52, 0.72, 0.31),
+      new THREE.MeshStandardMaterial({ color: 0x18181b, roughness: 0.7 }),
+    );
+    cropTop.position.y = 0.42;
+    cropTop.castShadow = true;
+    torsoGroup.add(cropTop);
+
+    // Midriff skin band at lower waist
+    const midriff = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.16, 0.3), skinMat);
+    midriff.position.y = 0.12;
+    torsoGroup.add(midriff);
+
+    const yellowJacketMat = new THREE.MeshStandardMaterial({
+      color: 0xfacc15,
+      roughness: 0.4,
+      metalness: 0.05,
+    });
+    const blackStripeMat = new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.6 });
+
+    const leftJacket = new THREE.Mesh(new THREE.BoxGeometry(0.21, 0.68, 0.35), yellowJacketMat);
+    leftJacket.position.set(0.19, 0.47, 0.01);
+    leftJacket.castShadow = true;
+    torsoGroup.add(leftJacket);
+
+    const rightJacket = new THREE.Mesh(new THREE.BoxGeometry(0.21, 0.68, 0.35), yellowJacketMat);
+    rightJacket.position.set(-0.19, 0.47, 0.01);
+    rightJacket.castShadow = true;
+    torsoGroup.add(rightJacket);
+
+    const backJacket = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.68, 0.12), yellowJacketMat);
+    backJacket.position.set(0, 0.47, -0.13);
+    backJacket.castShadow = true;
+    torsoGroup.add(backJacket);
+
+    // White & Black Racing Trim on Kelly's Jacket
+    const leftTrim = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.68, 0.36), blackStripeMat);
+    leftTrim.position.set(0.09, 0.47, 0.01);
+    torsoGroup.add(leftTrim);
+
+    const rightTrim = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.68, 0.36), blackStripeMat);
+    rightTrim.position.set(-0.09, 0.47, 0.01);
+    torsoGroup.add(rightTrim);
+
+    const kellyCollar = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.22, 0.22, 0.18, 16, 1, true, Math.PI * 0.25, Math.PI * 1.5),
+      yellowJacketMat,
+    );
+    kellyCollar.position.set(0, 0.84, -0.02);
+    torsoGroup.add(kellyCollar);
+  }
+
+  /* --- 2. HEAD, FACE, HAIR & SIGNATURE ACCESSORIES --- */
+  const headGroup = new THREE.Group();
+  headGroup.position.y = 0.88;
+  torsoGroup.add(headGroup);
+
+  // Neck
+  const neckMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.12, 0.18, 12), skinMat);
+  neckMesh.position.y = 0.06;
+  headGroup.add(neckMesh);
+
+  // Sculpted Head
+  const cranium = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.46, 0.44), skinMat);
+  cranium.position.y = 0.34;
+  cranium.castShadow = true;
+  headGroup.add(cranium);
+
+  // Eyes & Eyebrows
+  const eyeWhiteMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+  const pupilMat = new THREE.MeshBasicMaterial({ color: isAlok ? 0x29180a : 0x3b2314 });
+  const browMat = new THREE.MeshBasicMaterial({ color: isAlok ? 0x111827 : 0x3f2312 });
+
+  [-0.1, 0.1].forEach((ex) => {
+    const eyeW = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.045, 0.02), eyeWhiteMat);
+    eyeW.position.set(ex, 0.36, 0.22);
+    headGroup.add(eyeW);
+
+    const pupil = new THREE.Mesh(new THREE.BoxGeometry(0.042, 0.042, 0.025), pupilMat);
+    pupil.position.set(ex, 0.36, 0.223);
+    headGroup.add(pupil);
+
+    const brow = new THREE.Mesh(new THREE.BoxGeometry(0.095, 0.022, 0.025), browMat);
+    brow.position.set(ex, 0.41, 0.222);
+    headGroup.add(brow);
+  });
+
+  // Nose & Mouth
+  const nose = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.07, 0.05), skinMat);
+  nose.position.set(0, 0.32, 0.23);
+  headGroup.add(nose);
+
+  const mouth = new THREE.Mesh(
+    new THREE.BoxGeometry(0.11, 0.022, 0.02),
+    new THREE.MeshBasicMaterial({ color: isAlok ? 0x8c4a32 : 0xd96b6b }),
+  );
+  mouth.position.set(0, 0.24, 0.222);
+  headGroup.add(mouth);
+
+  if (isAlok) {
+    // DJ Alok Signature Gold-Rimmed Aviator Sunglasses
+    const goldFrameMat = new THREE.MeshStandardMaterial({
+      color: 0xfacc15,
+      metalness: 0.9,
+      roughness: 0.15,
+    });
+    const lensMat = new THREE.MeshStandardMaterial({
+      color: 0x0f172a,
+      metalness: 0.85,
+      roughness: 0.1,
+    });
+
+    [-0.105, 0.105].forEach((gx) => {
+      const rim = new THREE.Mesh(new THREE.CylinderGeometry(0.082, 0.082, 0.025, 16), goldFrameMat);
+      rim.rotation.x = Math.PI / 2;
+      rim.position.set(gx, 0.365, 0.232);
+      headGroup.add(rim);
+
+      const lens = new THREE.Mesh(new THREE.CylinderGeometry(0.072, 0.072, 0.03, 16), lensMat);
+      lens.rotation.x = Math.PI / 2;
+      lens.position.set(gx, 0.365, 0.234);
+      headGroup.add(lens);
+    });
+
+    const bridge = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.018, 0.02), goldFrameMat);
+    bridge.position.set(0, 0.375, 0.235);
+    headGroup.add(bridge);
+
+    // Goatee / Beard trim for DJ Alok
+    const beard = new THREE.Mesh(
+      new THREE.BoxGeometry(0.45, 0.12, 0.45),
+      new THREE.MeshStandardMaterial({ color: 0x18181b, roughness: 0.9 }),
+    );
+    beard.position.set(0, 0.17, 0.005);
+    headGroup.add(beard);
+
+    // DJ Alok Spiky Top Hair + Undercut
+    const hairMat = new THREE.MeshStandardMaterial({ color: 0x141418, roughness: 0.75 });
+    const hairBase = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.16, 0.46), hairMat);
+    hairBase.position.set(0, 0.56, -0.01);
+    headGroup.add(hairBase);
+
+    for (let i = 0; i < 9; i++) {
+      const spike = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.24, 5), hairMat);
+      const row = Math.floor(i / 3) - 1;
+      const col = (i % 3) - 1;
+      spike.position.set(col * 0.12, 0.68, row * 0.11);
+      spike.rotation.set(-0.2 + row * 0.15, 0, -col * 0.2);
+      spike.castShadow = true;
+      headGroup.add(spike);
+    }
+  } else {
+    // KELLY Signature Bob-Cut Hair & Sporty Red/White Headband
+    const kellyHairMat = new THREE.MeshStandardMaterial({ color: 0x5c341d, roughness: 0.7 });
+    const hairTop = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.18, 0.48), kellyHairMat);
+    hairTop.position.set(0, 0.54, -0.01);
+    headGroup.add(hairTop);
+
+    const hairBack = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.44, 0.16), kellyHairMat);
+    hairBack.position.set(0, 0.36, -0.18);
+    headGroup.add(hairBack);
+
+    const hairSideL = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.42, 0.36), kellyHairMat);
+    hairSideL.position.set(0.22, 0.35, 0.02);
+    headGroup.add(hairSideL);
+
+    const hairSideR = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.42, 0.36), kellyHairMat);
+    hairSideR.position.set(-0.22, 0.35, 0.02);
+    headGroup.add(hairSideR);
+
+    // Sporty Red Headband
+    const headband = new THREE.Mesh(
+      new THREE.BoxGeometry(0.5, 0.065, 0.49),
+      new THREE.MeshStandardMaterial({ color: 0xef4444, roughness: 0.5 }),
+    );
+    headband.position.set(0, 0.5, 0.0);
+    headGroup.add(headband);
+  }
+
+  /* --- 3. ARTICULATED ARMS (SHOULDERS, ELBOWS, FOREARMS & HANDS) --- */
+  function createArm(isLeft: boolean) {
+    const dir = isLeft ? 1 : -1;
+    const shoulderPivot = new THREE.Group();
+    shoulderPivot.position.set(dir * 0.38, 0.74, 0);
+    torsoGroup.add(shoulderPivot);
+
+    const sleeveColor = isAlok ? 0xf8fafc : 0xfacc15;
+    const sleeveMat = new THREE.MeshStandardMaterial({ color: sleeveColor, roughness: 0.5 });
+
+    const upperArm = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.095, 0.085, 0.42, 12),
+      isAlok ? skinMat : sleeveMat,
+    );
+    upperArm.position.y = -0.18;
+    upperArm.castShadow = true;
+    shoulderPivot.add(upperArm);
+
+    // Shoulder Pad / Racing Stripe
+    const shoulderCap = new THREE.Mesh(
+      new THREE.BoxGeometry(0.2, 0.18, 0.22),
+      new THREE.MeshStandardMaterial({ color: isAlok ? 0xf59e0b : 0xfacc15, roughness: 0.4 }),
+    );
+    shoulderCap.position.y = -0.04;
+    shoulderPivot.add(shoulderCap);
+
+    const elbowPivot = new THREE.Group();
+    elbowPivot.position.y = -0.38;
+    shoulderPivot.add(elbowPivot);
+
+    const forearm = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.08, 0.07, 0.38, 12),
+      isAlok ? skinMat : sleeveMat,
+    );
+    forearm.position.y = -0.18;
+    forearm.castShadow = true;
+    elbowPivot.add(forearm);
+
+    // Glove / Wristband
+    const wristBand = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.082, 0.082, 0.09, 12),
+      new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.6 }),
+    );
+    wristBand.position.y = -0.33;
+    elbowPivot.add(wristBand);
+
+    const hand = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.12, 0.11), skinMat);
+    hand.position.y = -0.41;
+    hand.castShadow = true;
+    elbowPivot.add(hand);
+
+    return { shoulderPivot, elbowPivot };
+  }
+
+  const leftArm = createArm(true);
+  const rightArm = createArm(false);
+
+  /* --- 4. ARTICULATED LEGS (HIPS, THIGHS, KNEES, SHINS & SNEAKERS) --- */
+  function createLeg(isLeft: boolean) {
+    const dir = isLeft ? 1 : -1;
+    const hipPivot = new THREE.Group();
+    hipPivot.position.set(dir * 0.16, -0.05, 0);
+    pelvisGroup.add(hipPivot);
+
+    const pantsMat = new THREE.MeshStandardMaterial({
+      color: isAlok ? 0x1e293b : 0x18181b,
+      roughness: 0.75,
+    });
+
+    const thigh = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.125, 0.105, 0.48, 12),
+      pantsMat,
+    );
+    thigh.position.y = -0.24;
+    thigh.castShadow = true;
+    hipPivot.add(thigh);
+
+    // Gold/Yellow Thigh Holster / Strap
+    const strap = new THREE.Mesh(
+      new THREE.BoxGeometry(0.26, 0.06, 0.26),
+      new THREE.MeshStandardMaterial({ color: isAlok ? 0xf59e0b : 0xfacc15, roughness: 0.4 }),
+    );
+    strap.position.y = -0.26;
+    hipPivot.add(strap);
+
+    const kneePivot = new THREE.Group();
+    kneePivot.position.y = -0.48;
+    hipPivot.add(kneePivot);
+
+    const shinMat = isAlok ? pantsMat : skinMat;
+    const shin = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.085, 0.46, 12), shinMat);
+    shin.position.y = -0.23;
+    shin.castShadow = true;
+    kneePivot.add(shin);
+
+    if (!isAlok) {
+      // Kelly's white sport sock
+      const sock = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.095, 0.088, 0.24, 12),
+        new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.7 }),
+      );
+      sock.position.y = -0.34;
+      kneePivot.add(sock);
+    }
+
+    // High-Top Free Fire Sneaker
+    const shoeGroup = new THREE.Group();
+    shoeGroup.position.set(0, -0.48, 0.05);
+    kneePivot.add(shoeGroup);
+
+    const shoeMain = new THREE.Mesh(
+      new THREE.BoxGeometry(0.18, 0.13, 0.32),
+      new THREE.MeshStandardMaterial({
+        color: isAlok ? 0xf8fafc : 0xfacc15,
+        roughness: 0.5,
+      }),
+    );
+    shoeMain.castShadow = true;
+    shoeGroup.add(shoeMain);
+
+    const shoeSole = new THREE.Mesh(
+      new THREE.BoxGeometry(0.2, 0.045, 0.34),
+      new THREE.MeshStandardMaterial({
+        color: isAlok ? 0xf59e0b : 0xffffff,
+        roughness: 0.6,
+      }),
+    );
+    shoeSole.position.y = -0.05;
+    shoeGroup.add(shoeSole);
+
+    return { hipPivot, kneePivot };
+  }
+
+  const leftLeg = createLeg(true);
+  const rightLeg = createLeg(false);
+
+  /* --- 5. FREE FIRE ACTIVE SKILL 3D AURA ("DROP THE BEAT" / "DEADLY VELOCITY") --- */
+  const skillAuraGroup = new THREE.Group();
+  skillAuraGroup.position.y = 0.06;
+  skillAuraGroup.visible = false;
+  root.add(skillAuraGroup);
+
+  const outerAuraRing = new THREE.Mesh(
+    new THREE.RingGeometry(1.35, 1.52, 48),
+    new THREE.MeshBasicMaterial({
+      color: isAlok ? 0xf59e0b : 0xfacc15,
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.85,
+      blending: THREE.AdditiveBlending,
+    }),
+  );
+  outerAuraRing.rotation.x = -Math.PI / 2;
+  skillAuraGroup.add(outerAuraRing);
+
+  const innerAuraRing = new THREE.Mesh(
+    new THREE.RingGeometry(0.85, 0.96, 36),
+    new THREE.MeshBasicMaterial({
+      color: isAlok ? 0xd946ef : 0x38bdf8,
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.75,
+      blending: THREE.AdditiveBlending,
+    }),
+  );
+  innerAuraRing.rotation.x = -Math.PI / 2;
+  skillAuraGroup.add(innerAuraRing);
+
+  // Equalizer Pillars / Speed Lightning Nodes around the Aura Ring
+  for (let i = 0; i < 12; i++) {
+    const ang = (i / 12) * Math.PI * 2;
+    const bar = new THREE.Mesh(
+      new THREE.BoxGeometry(0.08, 0.35 + (i % 3) * 0.18, 0.08),
+      new THREE.MeshBasicMaterial({
+        color: i % 2 === 0 ? (isAlok ? 0xfacc15 : 0x38bdf8) : isAlok ? 0xd946ef : 0xfef08a,
+        transparent: true,
+        opacity: 0.8,
+        blending: THREE.AdditiveBlending,
+      }),
+    );
+    bar.position.set(Math.cos(ang) * 1.42, 0.22, Math.sin(ang) * 1.42);
+    skillAuraGroup.add(bar);
+  }
+
+  /* --- 6. SLEEP "Zzz" FLOATING 3D PARTICLES --- */
+  const sleepZzzGroup = new THREE.Group();
+  sleepZzzGroup.position.y = 1.2;
+  sleepZzzGroup.visible = false;
+  root.add(sleepZzzGroup);
+
+  for (let i = 0; i < 3; i++) {
+    const zOrb = new THREE.Mesh(
+      new THREE.OctahedronGeometry(0.08 + i * 0.03, 0),
+      new THREE.MeshBasicMaterial({ color: 0x38bdf8 }),
+    );
+    zOrb.position.set(i * 0.16, i * 0.25, 0);
+    sleepZzzGroup.add(zOrb);
+  }
+
+  /* --- 7. ACTIVE PLAYER FOOT RING --- */
+  const selectionRing = new THREE.Mesh(
+    new THREE.RingGeometry(0.42, 0.52, 32),
+    new THREE.MeshBasicMaterial({
+      color: isAlok ? 0xf59e0b : 0x38bdf8,
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.9,
+    }),
+  );
+  selectionRing.rotation.x = -Math.PI / 2;
+  selectionRing.position.y = 0.03;
+  root.add(selectionRing);
+
+  return {
+    id: charId,
+    root,
+    facingGroup,
+    bodyPivot,
+    torsoGroup,
+    headGroup,
+    leftShoulder: leftArm.shoulderPivot,
+    leftElbow: leftArm.elbowPivot,
+    rightShoulder: rightArm.shoulderPivot,
+    rightElbow: rightArm.elbowPivot,
+    leftHip: leftLeg.hipPivot,
+    leftKnee: leftLeg.kneePivot,
+    rightHip: rightLeg.hipPivot,
+    rightKnee: rightLeg.kneePivot,
+    skillAuraGroup,
+    sleepZzzGroup,
+    selectionRing,
+  };
+}
+
+/* ---------- MAIN EARTH BASE + FREE FIRE CHARACTER VIEW ---------- */
 
 function EarthBase3DView({ onExitToSpace }: { onExitToSpace: () => void }) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [selectedEntity, setSelectedEntity] = useState<BaseEntity | null>(INITIAL_BASE_ENTITIES[0]);
+  const [selectedEntity, setSelectedEntity] = useState<BaseEntity | null>(null);
   const [enteringAtmosphere, setEnteringAtmosphere] = useState(true);
-  const [cameraMode, setCameraMode] = useState<'village' | 'globe'>('village');
-  const camPresetRef = useRef<((mode: 'village' | 'globe') => void) | null>(null);
+  const [cameraMode, setCameraMode] = useState<'character' | 'village' | 'globe'>('character');
+
+  // Free Fire Character State
+  const [activeChar, setActiveChar] = useState<CharacterId>('alok');
+  const [posture, setPosture] = useState<CharacterPosture>('stand');
+  const [isSprinting, setIsSprinting] = useState(false);
+  const [skillActive, setSkillActive] = useState(false);
+  const [isEmoting, setIsEmoting] = useState(false);
+  const [hp, setHp] = useState(200);
+  const [ep, setEp] = useState(150);
+
+  // Virtual Analog Joystick UI State
+  const [joyKnob, setJoyKnob] = useState({ x: 0, y: 0 });
+  const joystickVectorRef = useRef({ x: 0, y: 0 });
+  const joyBaseRef = useRef<HTMLDivElement>(null);
+  const joyDraggingRef = useRef(false);
+
+  // Bridges from React UI buttons to the 60FPS Three.js loop
+  const activeCharRef = useRef<CharacterId>('alok');
+  const postureRef = useRef<CharacterPosture>('stand');
+  const isSprintingRef = useRef(false);
+  const skillActiveRef = useRef(false);
+  const isEmotingRef = useRef(false);
+  const cameraModeRef = useRef<'character' | 'village' | 'globe'>('character');
+
+  const actionsBridgeRef = useRef<{
+    triggerJump: () => void;
+    setPostureState: (next: CharacterPosture) => void;
+    switchCharacter: (id: CharacterId) => void;
+    activateSkill: () => void;
+    triggerEmote: () => void;
+    setCamPreset: (mode: 'character' | 'village' | 'globe') => void;
+  } | null>(null);
+
+  // Virtual Joystick Pointer Handlers
+  const updateJoystickFromEvent = (clientX: number, clientY: number) => {
+    const base = joyBaseRef.current;
+    if (!base) return;
+    const rect = base.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    const maxR = rect.width / 2 - 14;
+    let dx = clientX - cx;
+    let dy = clientY - cy;
+    const dist = Math.hypot(dx, dy);
+    if (dist > maxR) {
+      dx = (dx / dist) * maxR;
+      dy = (dy / dist) * maxR;
+    }
+    setJoyKnob({ x: dx, y: dy });
+    joystickVectorRef.current = { x: dx / maxR, y: dy / maxR };
+  };
 
   useEffect(() => {
     const container = containerRef.current;
@@ -148,7 +837,6 @@ function EarthBase3DView({ onExitToSpace }: { onExitToSpace: () => void }) {
       0.5,
       2000,
     );
-    // Start high above the spherical Earth for the atmospheric orbital swoop
     camera.position.set(0, R_PLANET + 115, 95);
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
@@ -162,9 +850,9 @@ function EarthBase3DView({ onExitToSpace }: { onExitToSpace: () => void }) {
 
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
-    controls.dampingFactor = 0.06;
-    controls.target.set(0, R_VILLAGE * 0.72, 0);
-    controls.minDistance = 12;
+    controls.dampingFactor = 0.07;
+    controls.target.set(0, R_VILLAGE, 0);
+    controls.minDistance = 4.5;
     controls.maxDistance = 260;
 
     // Background Starfield around the Spherical Earth
@@ -187,8 +875,7 @@ function EarthBase3DView({ onExitToSpace }: { onExitToSpace: () => void }) {
       ),
     );
 
-    // Sunlight + Global Ambient Illumination so the whole spherical planet is visible
-    const hemiLight = new THREE.HemisphereLight(0xe0f2fe, 0x1e293b, 0.9);
+    const hemiLight = new THREE.HemisphereLight(0xe0f2fe, 0x1e293b, 0.95);
     scene.add(hemiLight);
 
     const sunLight = new THREE.DirectionalLight(0xfff7ed, 2.4);
@@ -206,13 +893,11 @@ function EarthBase3DView({ onExitToSpace }: { onExitToSpace: () => void }) {
     sunLight.shadow.bias = -0.0005;
     scene.add(sunLight);
 
-    // Subtle back-rim fill light so the night side of the globe still shows continents & mountains
     const rimLight = new THREE.DirectionalLight(0x38bdf8, 0.55);
     rimLight.position.set(-90, -70, -80);
     scene.add(rimLight);
 
-    /* ---------- 2. 3D SPHERICAL EARTH TERRAIN (CONTINENTS, MOUNTAIN RANGES & OCEANS) ---------- */
-    // Helper function to map any (gx, gz) village tile to a 3D point & orientation on the sphere
+    /* ---------- 2. 3D SPHERICAL EARTH TERRAIN (CONTINENTS, MOUNTAINS & OCEANS) ---------- */
     const UP = new THREE.Vector3(0, 1, 0);
     function getSphereTransform(gx: number, gz: number, radiusOffset = 0) {
       const normal = new THREE.Vector3(gx * TILE_ANGLE, 1.0, gz * TILE_ANGLE).normalize();
@@ -221,12 +906,9 @@ function EarthBase3DView({ onExitToSpace }: { onExitToSpace: () => void }) {
       return { normal, position, quaternion };
     }
 
-    // 3D Continental & Mountain Ridge Elevation Function on Unit Sphere Normal (nx, ny, nz)
     function evaluateEarthElevation(nx: number, ny: number, nz: number) {
-      // Angular distance from North Pole (0, 1, 0) where the Clash of Clans Village Plateau sits
       const angleFromPole = Math.acos(clamp(ny, -1, 1));
 
-      // Multi-octave 3D FBM for realistic continents
       let cont = 0;
       let amp = 0.5;
       let freq = 1.65;
@@ -236,21 +918,15 @@ function EarthBase3DView({ onExitToSpace }: { onExitToSpace: () => void }) {
         amp *= 0.5;
       }
 
-      // Sharp tectonic mountain ridges using ridged multifractal math
       const r1 = 1.0 - Math.abs(noiseGen.noise3D(nx * 4.8 + 5.2, ny * 4.8, nz * 4.8 + 1.9));
       const r2 = 1.0 - Math.abs(noiseGen.noise3D(nx * 9.5, ny * 9.5 + 3.4, nz * 9.5));
       const mountainRidge = Math.pow(clamp(r1 * 0.7 + r2 * 0.3, 0, 1), 2.2);
 
-      // Base continental height (-1.0 ocean trenches to +1.0 high mountains)
-      let rawHeight = cont + (cont > 0.02 ? mountainRidge * 0.65 : 0);
+      const rawHeight = cont + (cont > 0.02 ? mountainRidge * 0.65 : 0);
 
-      // Sculpt a smooth, lush green Continental Plateau at the top of the globe for the Village Clearing
-      // surrounded by a scenic ring of 3D mountain ranges!
       if (angleFromPole < 0.22) {
-        // Inside the village clearing: flat spherical plateau at height = 0.25
         return { height: 0.25, mountainRidge: 0, isVillageClearing: true };
       } else if (angleFromPole < 0.34) {
-        // Transition ring around the village with dramatic foothills & mountain peaks
         const t = (angleFromPole - 0.22) / 0.12;
         const smoothT = t * t * (3 - 2 * t);
         const ringMountains = 0.28 + mountainRidge * 0.55 * Math.sin(t * Math.PI);
@@ -261,13 +937,10 @@ function EarthBase3DView({ onExitToSpace }: { onExitToSpace: () => void }) {
       return { height: rawHeight, mountainRidge, isVillageClearing: false };
     }
 
-    // High-resolution Icosahedron for true 3D displaced Continents & Mountain Ranges
     const planetGeo = new THREE.IcosahedronGeometry(R_PLANET, 40);
     const posAttr = planetGeo.attributes.position;
     const colAttr = new THREE.BufferAttribute(new Float32Array(posAttr.count * 3), 3);
     const vNorm = new THREE.Vector3();
-
-    // Potential tree positions across the entire globe's forest biomes
     const candidateForestSpots: { normal: THREE.Vector3; radius: number }[] = [];
 
     for (let i = 0; i < posAttr.count; i++) {
@@ -277,7 +950,7 @@ function EarthBase3DView({ onExitToSpace }: { onExitToSpace: () => void }) {
         vNorm.y,
         vNorm.z,
       );
-      const lat = Math.abs(vNorm.y); // 0 at equator, 1 at poles
+      const lat = Math.abs(vNorm.y);
       const moisture = noiseGen.noise3D(vNorm.x * 3.5, vNorm.y * 3.5, vNorm.z * 3.5) * 0.5 + 0.5;
 
       let displacedRadius = R_PLANET;
@@ -291,54 +964,44 @@ function EarthBase3DView({ onExitToSpace }: { onExitToSpace: () => void }) {
         g = 0.58;
         b = 0.16;
       } else if (height < 0.0) {
-        // Ocean Basin (sits below the translucent spherical ocean shell)
         const depth = clamp(-height * 1.6, 0, 1);
         displacedRadius = R_PLANET - 0.25 - depth * 1.6;
         r = 0.04 + (1 - depth) * 0.08;
         g = 0.18 + (1 - depth) * 0.28;
         b = 0.42 + (1 - depth) * 0.32;
       } else {
-        // Above Sea Level: Continents, Forests, Deserts & 3D Mountain Ranges
         const landH = height;
         displacedRadius = R_PLANET + 0.15 + Math.pow(landH, 1.35) * 5.8;
 
         if (lat > 0.84 - landH * 0.15) {
-          // Polar Ice Caps & Glacial Snow
           r = 0.94;
           g = 0.97;
           b = 1.0;
         } else if (landH < 0.055) {
-          // Coastal Golden Sand Beaches
           r = 0.88;
           g = 0.79;
           b = 0.52;
         } else if (landH > 0.62 || (landH > 0.42 && mountainRidge > 0.58)) {
-          // High 3D Mountain Ranges (Snow-capped peaks + rugged granite slopes)
           if (landH > 0.82) {
-            // Snow-Capped Mountain Peaks
             r = 0.96;
             g = 0.98;
             b = 1.0;
           } else {
-            // Rugged Alpine Granite & Slate Rock
             const rockShade = 0.42 + (landH - 0.42) * 0.35;
             r = rockShade * 1.05;
             g = rockShade * 0.98;
             b = rockShade * 0.92;
           }
         } else if (moisture < 0.36 && lat < 0.45) {
-          // Continental Savannah & Arid Desert Dunes
           r = 0.78;
           g = 0.63;
           b = 0.36;
         } else {
-          // Lush Continental Forests & Grasslands
           const lush = clamp((moisture - 0.3) * 1.4, 0, 1);
           r = 0.16 + (1 - lush) * 0.14;
           g = 0.44 + lush * 0.18;
           b = 0.14 + (1 - lush) * 0.06;
 
-          // Record spot for 3D forest trees
           if (i % 19 === 0 && landH > 0.08 && landH < 0.46) {
             candidateForestSpots.push({
               normal: vNorm.clone(),
@@ -360,39 +1023,40 @@ function EarthBase3DView({ onExitToSpace }: { onExitToSpace: () => void }) {
     planetGeo.setAttribute('color', colAttr);
     planetGeo.computeVertexNormals();
 
-    const planetMat = new THREE.MeshStandardMaterial({
-      vertexColors: true,
-      roughness: 0.82,
-      metalness: 0.04,
-    });
-    const earthTerrainMesh = new THREE.Mesh(planetGeo, planetMat);
+    const earthTerrainMesh = new THREE.Mesh(
+      planetGeo,
+      new THREE.MeshStandardMaterial({
+        vertexColors: true,
+        roughness: 0.82,
+        metalness: 0.04,
+      }),
+    );
     earthTerrainMesh.receiveShadow = true;
     earthTerrainMesh.castShadow = true;
     scene.add(earthTerrainMesh);
 
-    /* ---------- 3. SPHERICAL OCEAN SHELL & ATMOSPHERIC GLOW ---------- */
-    // Glossy, semi-transparent Spherical Ocean at sea level (R_PLANET)
-    const oceanGeo = new THREE.SphereGeometry(R_PLANET, 96, 96);
-    const oceanMat = new THREE.MeshPhongMaterial({
-      color: 0x0ea5e9,
-      emissive: 0x0369a1,
-      emissiveIntensity: 0.18,
-      specular: new THREE.Color(0xbae6fd),
-      shininess: 95,
-      transparent: true,
-      opacity: 0.84,
-    });
-    const oceanSphere = new THREE.Mesh(oceanGeo, oceanMat);
+    const oceanSphere = new THREE.Mesh(
+      new THREE.SphereGeometry(R_PLANET, 96, 96),
+      new THREE.MeshPhongMaterial({
+        color: 0x0ea5e9,
+        emissive: 0x0369a1,
+        emissiveIntensity: 0.18,
+        specular: new THREE.Color(0xbae6fd),
+        shininess: 95,
+        transparent: true,
+        opacity: 0.84,
+      }),
+    );
     oceanSphere.receiveShadow = true;
     scene.add(oceanSphere);
 
-    // Rayleigh-Scattering Blue Atmosphere Rim around the Spherical Planet
-    const atmoGeo = new THREE.SphereGeometry(R_PLANET * 1.13, 64, 64);
-    const atmoMat = createAtmosphereMaterial(0x38bdf8, 0.85, 3.4);
-    const atmoMesh = new THREE.Mesh(atmoGeo, atmoMat);
+    const atmoMesh = new THREE.Mesh(
+      new THREE.SphereGeometry(R_PLANET * 1.13, 64, 64),
+      createAtmosphereMaterial(0x38bdf8, 0.85, 3.4),
+    );
     scene.add(atmoMesh);
 
-    /* ---------- 4. 3D FORESTS ACROSS THE CONTINENTS ---------- */
+    /* ---------- 3. FOREST TREES & VILLAGE CHECKERED GRID ---------- */
     function createPineTree(scale = 1) {
       const group = new THREE.Group();
       const trunk = new THREE.Mesh(
@@ -446,7 +1110,6 @@ function EarthBase3DView({ onExitToSpace }: { onExitToSpace: () => void }) {
       return rock;
     }
 
-    // Plant up to 320 3D trees across the continents of the entire spherical Earth
     const maxGlobalTrees = Math.min(candidateForestSpots.length, 320);
     for (let i = 0; i < maxGlobalTrees; i++) {
       const spot = candidateForestSpots[i];
@@ -457,7 +1120,6 @@ function EarthBase3DView({ onExitToSpace }: { onExitToSpace: () => void }) {
       scene.add(tree);
     }
 
-    // Ring of wilderness forest trees framing the Clash of Clans Village Plateau
     for (let i = 0; i < 56; i++) {
       const angle = (i / 56) * Math.PI * 2 + (Math.random() - 0.5) * 0.08;
       const gridDist = 9.2 + Math.random() * 2.8;
@@ -474,7 +1136,6 @@ function EarthBase3DView({ onExitToSpace }: { onExitToSpace: () => void }) {
       scene.add(tree);
     }
 
-    /* ---------- 5. CURVED SPHERICAL CLASH OF CLANS 16x16 CHECKERED GRID ---------- */
     const gridGroup = new THREE.Group();
     const tileGeo = new THREE.BoxGeometry(TILE_WORLD * 0.96, 0.16, TILE_WORLD * 0.96);
     const lightGrassMat = new THREE.MeshStandardMaterial({ color: 0x68c138, roughness: 0.85 });
@@ -494,7 +1155,7 @@ function EarthBase3DView({ onExitToSpace }: { onExitToSpace: () => void }) {
     }
     scene.add(gridGroup);
 
-    /* ---------- 6. CLASH OF CLANS STARTER 3D BUILDINGS ON THE SPHERE ---------- */
+    /* ---------- 4. STARTER BUILDINGS ON THE SPHERE ---------- */
     const clickableMeshes: THREE.Object3D[] = [];
     const animatedParts: {
       cannonTurret?: THREE.Object3D;
@@ -504,7 +1165,7 @@ function EarthBase3DView({ onExitToSpace }: { onExitToSpace: () => void }) {
       campfireFlame?: THREE.Object3D;
     } = {};
 
-    const S = 0.48; // Building scale to match spherical tile size
+    const S = 0.48;
 
     function buildEntityMesh(entity: BaseEntity): THREE.Group {
       const root = new THREE.Group();
@@ -727,7 +1388,6 @@ function EarthBase3DView({ onExitToSpace }: { onExitToSpace: () => void }) {
         inner.add(gemCluster);
       }
 
-      // Snap building onto the curved surface of the Spherical Earth
       const { position, quaternion } = getSphereTransform(entity.gridX, entity.gridZ, 0.02);
       root.position.copy(position);
       root.quaternion.copy(quaternion);
@@ -747,7 +1407,33 @@ function EarthBase3DView({ onExitToSpace }: { onExitToSpace: () => void }) {
       scene.add(buildEntityMesh(entity));
     });
 
-    /* ---------- 7. DRIFTING 3D VOLUMETRIC CLOUD CLUSTERS AROUND THE GLOBE ---------- */
+    /* ---------- 5. SPAWN BOTH FREE FIRE CHARACTERS (DJ ALOK & KELLY) ---------- */
+    const alokRig = buildFreeFireCharacterRig('alok');
+    const kellyRig = buildFreeFireCharacterRig('kelly');
+    scene.add(alokRig.root);
+    scene.add(kellyRig.root);
+
+    const charRigs: Record<CharacterId, CharacterRig> = {
+      alok: alokRig,
+      kelly: kellyRig,
+    };
+
+    const charPhysics: Record<
+      CharacterId,
+      {
+        gx: number;
+        gz: number;
+        heading: number;
+        jumpHeight: number;
+        verticalVel: number;
+        walkCycle: number;
+      }
+    > = {
+      alok: { gx: 0.0, gz: 2.6, heading: 0, jumpHeight: 0, verticalVel: 0, walkCycle: 0 },
+      kelly: { gx: -2.6, gz: 4.2, heading: 0.4, jumpHeight: 0, verticalVel: 0, walkCycle: 0 },
+    };
+
+    /* ---------- 6. DRIFTING CLOUDS & SELECTION HIGHLIGHT ---------- */
     const cloudsOrbitGroup = new THREE.Group();
     const cloudMat = new THREE.MeshLambertMaterial({
       color: 0xffffff,
@@ -755,14 +1441,17 @@ function EarthBase3DView({ onExitToSpace }: { onExitToSpace: () => void }) {
       opacity: 0.58,
     });
     for (let i = 0; i < 36; i++) {
-      const phi = 0.38 + Math.random() * (Math.PI - 0.55); // Keep clear directly over village center
+      const phi = 0.38 + Math.random() * (Math.PI - 0.55);
       const theta = Math.random() * Math.PI * 2;
       const cNorm = new THREE.Vector3(
         Math.sin(phi) * Math.cos(theta),
         Math.cos(phi),
         Math.sin(phi) * Math.sin(theta),
       );
-      const puff = new THREE.Mesh(new THREE.DodecahedronGeometry(2.6 + Math.random() * 2.8, 1), cloudMat);
+      const puff = new THREE.Mesh(
+        new THREE.DodecahedronGeometry(2.6 + Math.random() * 2.8, 1),
+        cloudMat,
+      );
       puff.position.copy(cNorm).multiplyScalar(R_PLANET + 7.2 + Math.random() * 2.5);
       puff.quaternion.setFromUnitVectors(UP, cNorm);
       puff.scale.set(1.8, 0.36, 1.2);
@@ -770,7 +1459,6 @@ function EarthBase3DView({ onExitToSpace }: { onExitToSpace: () => void }) {
     }
     scene.add(cloudsOrbitGroup);
 
-    /* ---------- 8. SELECTION HIGHLIGHT RING ON CURVED SURFACE ---------- */
     const selectionHighlight = new THREE.Mesh(
       new THREE.RingGeometry(0.65, 0.78, 4),
       new THREE.MeshBasicMaterial({
@@ -778,15 +1466,10 @@ function EarthBase3DView({ onExitToSpace }: { onExitToSpace: () => void }) {
         side: THREE.DoubleSide,
       }),
     );
-    const initSel = getSphereTransform(0, 0, 0.08);
-    selectionHighlight.position.copy(initSel.position);
-    selectionHighlight.quaternion
-      .copy(initSel.quaternion)
-      .multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2, 0, Math.PI / 4)));
-    selectionHighlight.scale.setScalar(3 * TILE_WORLD);
+    selectionHighlight.visible = false;
     scene.add(selectionHighlight);
 
-    /* ---------- 9. CAMERA PRESET SWITCHER (VILLAGE HORIZON vs FULL GLOBE) ---------- */
+    /* ---------- 7. CHARACTER ACTIONS & CAMERA PRESET BRIDGE ---------- */
     let camTransition: {
       startPos: THREE.Vector3;
       endPos: THREE.Vector3;
@@ -795,24 +1478,98 @@ function EarthBase3DView({ onExitToSpace }: { onExitToSpace: () => void }) {
       progress: number;
     } | null = null;
 
-    camPresetRef.current = (mode: 'village' | 'globe') => {
+    let skillTimer: number | null = null;
+    let emoteTimer: number | null = null;
+
+    const triggerJump = () => {
+      const id = activeCharRef.current;
+      const st = charPhysics[id];
+      // If sitting or sleeping, stand up first and jump!
+      if (postureRef.current !== 'stand') {
+        postureRef.current = 'stand';
+        setPosture('stand');
+      }
+      if (st.jumpHeight <= 0.02) {
+        st.verticalVel = 7.2;
+      }
+    };
+
+    const setPostureState = (next: CharacterPosture) => {
+      const targetPosture = postureRef.current === next ? 'stand' : next;
+      postureRef.current = targetPosture;
+      setPosture(targetPosture);
+      if (targetPosture !== 'stand') {
+        isSprintingRef.current = false;
+        setIsSprinting(false);
+      }
+    };
+
+    const switchCharacter = (id: CharacterId) => {
+      activeCharRef.current = id;
+      setActiveChar(id);
+      postureRef.current = 'stand';
+      setPosture('stand');
+    };
+
+    const activateSkill = () => {
+      skillActiveRef.current = true;
+      setSkillActive(true);
+      setHp((prev) => Math.min(200, prev + 35));
+      if (skillTimer) window.clearTimeout(skillTimer);
+      skillTimer = window.setTimeout(() => {
+        skillActiveRef.current = false;
+        setSkillActive(false);
+      }, 9000);
+    };
+
+    const triggerEmote = () => {
+      postureRef.current = 'stand';
+      setPosture('stand');
+      isEmotingRef.current = true;
+      setIsEmoting(true);
+      if (emoteTimer) window.clearTimeout(emoteTimer);
+      emoteTimer = window.setTimeout(() => {
+        isEmotingRef.current = false;
+        setIsEmoting(false);
+      }, 3600);
+    };
+
+    const setCamPreset = (mode: 'character' | 'village' | 'globe') => {
+      cameraModeRef.current = mode;
       setCameraMode(mode);
+      const activeSt = charPhysics[activeCharRef.current];
+      const charTf = getSphereTransform(activeSt.gx, activeSt.gz, 0.7);
+
       camTransition = {
         startPos: camera.position.clone(),
         startTarget: controls.target.clone(),
         endPos:
-          mode === 'village'
-            ? new THREE.Vector3(0, R_VILLAGE + 19, 28)
-            : new THREE.Vector3(0, 40, 148),
+          mode === 'character'
+            ? charTf.position.clone().add(new THREE.Vector3(0, 4.2, 7.8))
+            : mode === 'village'
+              ? new THREE.Vector3(0, R_VILLAGE + 19, 28)
+              : new THREE.Vector3(0, 40, 148),
         endTarget:
-          mode === 'village'
-            ? new THREE.Vector3(0, R_VILLAGE * 0.78, 0)
-            : new THREE.Vector3(0, 0, 0),
+          mode === 'character'
+            ? charTf.position.clone()
+            : mode === 'village'
+              ? new THREE.Vector3(0, R_VILLAGE * 0.78, 0)
+              : new THREE.Vector3(0, 0, 0),
         progress: 0,
       };
     };
 
-    /* ---------- 10. RAYCASTER & KEYBOARD INTERACTION ---------- */
+    actionsBridgeRef.current = {
+      triggerJump,
+      setPostureState,
+      switchCharacter,
+      activateSkill,
+      triggerEmote,
+      setCamPreset,
+    };
+
+    /* ---------- 8. KEYBOARD & POINTER INPUT ---------- */
+    const keyMap: Record<string, boolean> = {};
     const raycaster = new THREE.Raycaster();
     const mouse = new THREE.Vector2();
     const downPos = { x: 0, y: 0 };
@@ -851,13 +1608,40 @@ function EarthBase3DView({ onExitToSpace }: { onExitToSpace: () => void }) {
     }
 
     function onKeyDown(e: KeyboardEvent) {
+      keyMap[e.code] = true;
+      if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(e.code)) {
+        e.preventDefault();
+      }
+      if (e.repeat) return;
+
       if (e.code === 'Escape') {
         onExitToSpace();
+      } else if (e.code === 'Space') {
+        triggerJump();
+      } else if (e.code === 'KeyC') {
+        setPostureState('sit');
+      } else if (e.code === 'KeyZ') {
+        setPostureState('sleep');
+      } else if (e.code === 'KeyF') {
+        activateSkill();
+      } else if (e.code === 'KeyB') {
+        triggerEmote();
+      } else if (e.code === 'Tab') {
+        switchCharacter(activeCharRef.current === 'alok' ? 'kelly' : 'alok');
+      } else if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') {
+        isSprintingRef.current = !isSprintingRef.current;
+        setIsSprinting(isSprintingRef.current);
       } else if (e.code === 'Digit1') {
-        camPresetRef.current?.('village');
+        setCamPreset('character');
       } else if (e.code === 'Digit2') {
-        camPresetRef.current?.('globe');
+        setCamPreset('village');
+      } else if (e.code === 'Digit3') {
+        setCamPreset('globe');
       }
+    }
+
+    function onKeyUp(e: KeyboardEvent) {
+      keyMap[e.code] = false;
     }
 
     function onResize() {
@@ -868,16 +1652,16 @@ function EarthBase3DView({ onExitToSpace }: { onExitToSpace: () => void }) {
 
     window.addEventListener('resize', onResize);
     window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
     renderer.domElement.addEventListener('pointerdown', onPointerDown);
     renderer.domElement.addEventListener('pointerup', onPointerUp);
 
-    /* ---------- 11. ANIMATION LOOP ---------- */
+    /* ---------- 9. PROCEDURAL SKELETAL ANIMATION & MOVEMENT LOOP ---------- */
     const clock = new THREE.Clock();
     let diveProgress = 0;
-    const diveDuration = 1.75;
+    const diveDuration = 1.65;
     const startCamPos = new THREE.Vector3(0, R_PLANET + 115, 95);
-    // Landing angle shows BOTH the Clash of Clans village AND the curved spherical Earth horizon, continents & oceans!
-    const targetVillageCamPos = new THREE.Vector3(0, R_VILLAGE + 19, 28);
+    const targetInitialCamPos = new THREE.Vector3(0, R_VILLAGE + 4.8, 10.5);
 
     let animId = 0;
     function animate() {
@@ -885,48 +1669,375 @@ function EarthBase3DView({ onExitToSpace }: { onExitToSpace: () => void }) {
       const dt = Math.min(clock.getDelta(), 0.1);
       const elapsed = clock.getElapsedTime();
 
+      const currentCharId = activeCharRef.current;
+      const activeSpec = FREE_FIRE_CHARACTERS[currentCharId];
+      const activePhys = charPhysics[currentCharId];
+      const prevCharWorldPos = getSphereTransform(
+        activePhys.gx,
+        activePhys.gz,
+        activePhys.jumpHeight + 0.65,
+      ).position;
+
+      /* --- A. Compute Movement Input (Virtual Joystick + WASD/Arrows) --- */
+      let moveX = joystickVectorRef.current.x;
+      let moveY = joystickVectorRef.current.y;
+
+      if (keyMap['KeyW'] || keyMap['ArrowUp']) moveY -= 1;
+      if (keyMap['KeyS'] || keyMap['ArrowDown']) moveY += 1;
+      if (keyMap['KeyA'] || keyMap['ArrowLeft']) moveX -= 1;
+      if (keyMap['KeyD'] || keyMap['ArrowRight']) moveX += 1;
+
+      const inputMag = Math.min(1, Math.hypot(moveX, moveY));
+      const isMoving = inputMag > 0.08;
+
+      if (isMoving) {
+        if (isEmotingRef.current) {
+          isEmotingRef.current = false;
+          setIsEmoting(false);
+        }
+        const normX = moveX / Math.hypot(moveX, moveY);
+        const normY = moveY / Math.hypot(moveX, moveY);
+
+        // Align movement relative to current camera yaw around the village
+        const camForward = new THREE.Vector3();
+        camera.getWorldDirection(camForward);
+        camForward.y = 0;
+        if (camForward.lengthSq() < 0.001) camForward.set(0, 0, -1);
+        camForward.normalize();
+        const camRight = new THREE.Vector3(-camForward.z, 0, camForward.x);
+
+        const worldMoveX = camRight.x * normX + camForward.x * -normY;
+        const worldMoveZ = camRight.z * normX + camForward.z * -normY;
+
+        // posture speed multipliers (Sit/Crouch walk = 0.5x, Sleep/Prone crawl = 0.28x)
+        const postureMult =
+          postureRef.current === 'sit' ? 0.52 : postureRef.current === 'sleep' ? 0.3 : 1.0;
+        const sprintMult =
+          isSprintingRef.current && postureRef.current === 'stand' ? activeSpec.sprintBonus : 1.0;
+        const skillMult = skillActiveRef.current ? 1.22 : 1.0;
+
+        const effectiveSpeed =
+          activeSpec.baseSpeed * inputMag * postureMult * sprintMult * skillMult;
+
+        activePhys.gx = clamp(activePhys.gx + worldMoveX * effectiveSpeed * dt, -14.5, 14.5);
+        activePhys.gz = clamp(activePhys.gz + worldMoveZ * effectiveSpeed * dt, -14.5, 14.5);
+
+        // Smoothly rotate character heading toward movement direction
+        const targetHeading = Math.atan2(worldMoveX, worldMoveZ);
+        let diff = targetHeading - activePhys.heading;
+        while (diff > Math.PI) diff -= Math.PI * 2;
+        while (diff < -Math.PI) diff += Math.PI * 2;
+        activePhys.heading += diff * clamp(dt * 12, 0, 1);
+
+        activePhys.walkCycle += dt * effectiveSpeed * 2.3;
+      }
+
+      /* --- B. Jump & Gravity Physics along Spherical Normal --- */
+      if (activePhys.jumpHeight > 0 || activePhys.verticalVel !== 0) {
+        activePhys.jumpHeight += activePhys.verticalVel * dt;
+        activePhys.verticalVel -= 18.5 * dt; // Gravity
+        if (activePhys.jumpHeight <= 0) {
+          activePhys.jumpHeight = 0;
+          activePhys.verticalVel = 0;
+        }
+      }
+
+      /* --- C. Update Both Free Fire Character Rigs (Skeletal Poses) --- */
+      (['alok', 'kelly'] as CharacterId[]).forEach((cid) => {
+        const rig = charRigs[cid];
+        const phys = charPhysics[cid];
+        const isControlled = cid === currentCharId;
+        const charPosture: CharacterPosture = isControlled ? postureRef.current : 'stand';
+        const charMoving = isControlled && isMoving;
+        const charJumping = phys.jumpHeight > 0.04;
+        const charSprinting =
+          isControlled && isSprintingRef.current && charPosture === 'stand' && charMoving;
+
+        // Position & orient on the spherical Earth
+        const tf = getSphereTransform(phys.gx, phys.gz, phys.jumpHeight);
+        rig.root.position.copy(tf.position);
+        rig.root.quaternion.copy(tf.quaternion);
+        rig.facingGroup.rotation.y = phys.heading;
+
+        // Selection ring & Skill Aura visibility
+        rig.selectionRing.visible = isControlled;
+        rig.skillAuraGroup.visible = isControlled && skillActiveRef.current;
+        if (rig.skillAuraGroup.visible) {
+          rig.skillAuraGroup.rotation.y = elapsed * 2.4;
+          const auraPulse = 1 + Math.sin(elapsed * 6) * 0.06;
+          rig.skillAuraGroup.scale.set(auraPulse, 1, auraPulse);
+        }
+
+        // Sleep Zzz Particles
+        rig.sleepZzzGroup.visible = charPosture === 'sleep' && !charMoving;
+        if (rig.sleepZzzGroup.visible) {
+          rig.sleepZzzGroup.children.forEach((zOrb, idx) => {
+            const zPhase = (elapsed * 1.2 + idx * 0.33) % 1;
+            zOrb.position.y = zPhase * 0.85;
+            zOrb.position.x = Math.sin(elapsed * 3 + idx) * 0.15 + idx * 0.12;
+            zOrb.scale.setScalar(1 - zPhase * 0.5);
+          });
+        }
+
+        // Target Skeletal Joint Angles based on Posture & Action
+        let targetBodyY = 0;
+        let targetBodyPitch = 0;
+        let targetTorsoPitch = 0;
+        let targetTorsoYaw = 0;
+        let targetHeadPitch = 0;
+        let lShoulderX = 0,
+          lShoulderZ = 0.08,
+          lElbowX = -0.15;
+        let rShoulderX = 0,
+          rShoulderZ = -0.08,
+          rElbowX = -0.15;
+        let lHipX = 0,
+          lKneeX = 0;
+        let rHipX = 0,
+          rKneeX = 0;
+
+        if (charJumping) {
+          // Mid-air Free Fire Jump Pose
+          targetBodyY = 0.1;
+          targetTorsoPitch = 0.12;
+          lShoulderX = -2.1;
+          lShoulderZ = 0.35;
+          rShoulderX = -2.1;
+          rShoulderZ = -0.35;
+          lElbowX = -0.4;
+          rElbowX = -0.4;
+          lHipX = -0.65;
+          lKneeX = 1.1;
+          rHipX = -0.35;
+          rKneeX = 0.75;
+        } else if (charPosture === 'sleep') {
+          // Prone / Sleeping Horizontal Pose on the grass
+          targetBodyY = -0.46;
+          targetBodyPitch = Math.PI / 2 - 0.08; // Lie flat horizontally
+          if (charMoving) {
+            // Tactical Prone Crawl Animation
+            const c = phys.walkCycle * 1.2;
+            targetTorsoYaw = Math.sin(c) * 0.12;
+            lShoulderX = -2.5 + Math.sin(c) * 0.45;
+            rShoulderX = -2.5 - Math.sin(c) * 0.45;
+            lElbowX = -0.8;
+            rElbowX = -0.8;
+            lHipX = Math.sin(c) * 0.35;
+            rHipX = -Math.sin(c) * 0.35;
+            lKneeX = 0.45 + Math.max(0, Math.sin(c)) * 0.4;
+            rKneeX = 0.45 + Math.max(0, -Math.sin(c)) * 0.4;
+          } else {
+            // Peaceful Sleeping Pose (head resting on arm + slow breathing)
+            const breath = Math.sin(elapsed * 2.0) * 0.04;
+            targetTorsoPitch = breath;
+            targetHeadPitch = -0.25;
+            lShoulderX = -2.6;
+            lShoulderZ = 0.4;
+            lElbowX = -1.4;
+            rShoulderX = -0.4;
+            rShoulderZ = -0.25;
+            rElbowX = -0.6;
+            lHipX = 0.1;
+            rHipX = -0.15;
+            lKneeX = 0.25;
+            rKneeX = 0.55;
+          }
+        } else if (charPosture === 'sit') {
+          if (charMoving) {
+            // Tactical Free Fire Crouch-Walk
+            const c = phys.walkCycle * 1.1;
+            targetBodyY = -0.22 + Math.abs(Math.sin(c)) * 0.04;
+            targetTorsoPitch = 0.38;
+            targetHeadPitch = -0.25;
+            lHipX = -0.85 + Math.sin(c) * 0.55;
+            rHipX = -0.85 - Math.sin(c) * 0.55;
+            lKneeX = 1.45;
+            rKneeX = 1.45;
+            lShoulderX = -Math.sin(c) * 0.5;
+            rShoulderX = Math.sin(c) * 0.5;
+            lElbowX = -0.85;
+            rElbowX = -0.85;
+          } else {
+            // Seated on the Grass Pose (Cross/Bent knees, hands resting forward)
+            targetBodyY = -0.34;
+            targetTorsoPitch = 0.12 + Math.sin(elapsed * 2.2) * 0.02;
+            lHipX = -1.35;
+            rHipX = -1.35;
+            lKneeX = 1.65;
+            rKneeX = 1.65;
+            lShoulderX = -0.45;
+            lShoulderZ = 0.15;
+            rShoulderX = -0.45;
+            rShoulderZ = -0.15;
+            lElbowX = -0.65;
+            rElbowX = -0.65;
+          }
+        } else if (isControlled && isEmotingRef.current) {
+          // Celebratory Free Fire Booyah Dance / Wave Emote
+          const beat = elapsed * 8.0;
+          targetBodyY = Math.abs(Math.sin(beat)) * 0.08;
+          targetTorsoYaw = Math.sin(beat * 0.5) * 0.35;
+          lShoulderX = -2.4 + Math.sin(beat) * 0.35;
+          lShoulderZ = 0.45;
+          rShoulderX = -2.4 - Math.sin(beat) * 0.35;
+          rShoulderZ = -0.45;
+          lElbowX = -0.5 + Math.cos(beat) * 0.3;
+          rElbowX = -0.5 - Math.cos(beat) * 0.3;
+          lHipX = Math.sin(beat * 0.5) * 0.35;
+          rHipX = -Math.sin(beat * 0.5) * 0.35;
+          lKneeX = Math.max(0, -lHipX) * 0.8;
+          rKneeX = Math.max(0, -rHipX) * 0.8;
+        } else if (charMoving) {
+          // Stand Walk / Free Fire Sprint Cycle
+          const c = phys.walkCycle;
+          const amp = charSprinting ? 1.15 : 0.72;
+          targetBodyY = Math.abs(Math.sin(c * 2)) * (charSprinting ? 0.09 : 0.05);
+          targetTorsoPitch = charSprinting ? 0.28 : 0.09;
+          targetTorsoYaw = Math.sin(c) * (charSprinting ? 0.18 : 0.08);
+
+          lHipX = Math.sin(c) * amp;
+          rHipX = -Math.sin(c) * amp;
+          lKneeX = Math.max(0, -Math.sin(c + 0.4)) * (charSprinting ? 1.35 : 0.85);
+          rKneeX = Math.max(0, Math.sin(c + 0.4)) * (charSprinting ? 1.35 : 0.85);
+
+          lShoulderX = -Math.sin(c) * amp * 0.95;
+          rShoulderX = Math.sin(c) * amp * 0.95;
+          lElbowX = charSprinting ? -1.15 : -0.45;
+          rElbowX = charSprinting ? -1.15 : -0.45;
+        } else {
+          // Idle Heroic Breathing Stance
+          const idleWave = Math.sin(elapsed * 2.4 + (cid === 'alok' ? 0 : 1.5));
+          targetBodyY = idleWave * 0.015;
+          lShoulderZ = 0.1 + idleWave * 0.025;
+          rShoulderZ = -0.1 - idleWave * 0.025;
+          lElbowX = -0.22;
+          rElbowX = -0.22;
+          // Companion character waves occasionally when idle
+          if (!isControlled && Math.sin(elapsed * 0.8) > 0.6) {
+            rShoulderX = -2.3;
+            rShoulderZ = -0.3 + Math.sin(elapsed * 9) * 0.25;
+            rElbowX = -0.4;
+          }
+        }
+
+        // Smoothly interpolate all skeletal joints
+        const lerpRate = clamp(dt * 12, 0, 1);
+        rig.bodyPivot.position.y = THREE.MathUtils.lerp(
+          rig.bodyPivot.position.y,
+          targetBodyY,
+          lerpRate,
+        );
+        rig.bodyPivot.rotation.x = THREE.MathUtils.lerp(
+          rig.bodyPivot.rotation.x,
+          targetBodyPitch,
+          lerpRate,
+        );
+        rig.torsoGroup.rotation.x = THREE.MathUtils.lerp(
+          rig.torsoGroup.rotation.x,
+          targetTorsoPitch,
+          lerpRate,
+        );
+        rig.torsoGroup.rotation.y = THREE.MathUtils.lerp(
+          rig.torsoGroup.rotation.y,
+          targetTorsoYaw,
+          lerpRate,
+        );
+        rig.headGroup.rotation.x = THREE.MathUtils.lerp(
+          rig.headGroup.rotation.x,
+          targetHeadPitch,
+          lerpRate,
+        );
+
+        rig.leftShoulder.rotation.x = THREE.MathUtils.lerp(
+          rig.leftShoulder.rotation.x,
+          lShoulderX,
+          lerpRate,
+        );
+        rig.leftShoulder.rotation.z = THREE.MathUtils.lerp(
+          rig.leftShoulder.rotation.z,
+          lShoulderZ,
+          lerpRate,
+        );
+        rig.leftElbow.rotation.x = THREE.MathUtils.lerp(
+          rig.leftElbow.rotation.x,
+          lElbowX,
+          lerpRate,
+        );
+
+        rig.rightShoulder.rotation.x = THREE.MathUtils.lerp(
+          rig.rightShoulder.rotation.x,
+          rShoulderX,
+          lerpRate,
+        );
+        rig.rightShoulder.rotation.z = THREE.MathUtils.lerp(
+          rig.rightShoulder.rotation.z,
+          rShoulderZ,
+          lerpRate,
+        );
+        rig.rightElbow.rotation.x = THREE.MathUtils.lerp(
+          rig.rightElbow.rotation.x,
+          rElbowX,
+          lerpRate,
+        );
+
+        rig.leftHip.rotation.x = THREE.MathUtils.lerp(rig.leftHip.rotation.x, lHipX, lerpRate);
+        rig.leftKnee.rotation.x = THREE.MathUtils.lerp(rig.leftKnee.rotation.x, lKneeX, lerpRate);
+        rig.rightHip.rotation.x = THREE.MathUtils.lerp(rig.rightHip.rotation.x, rHipX, lerpRate);
+        rig.rightKnee.rotation.x = THREE.MathUtils.lerp(
+          rig.rightKnee.rotation.x,
+          rKneeX,
+          lerpRate,
+        );
+      });
+
+      /* --- D. Camera Follow & Preset Transitions --- */
+      const newCharWorldPos = getSphereTransform(
+        activePhys.gx,
+        activePhys.gz,
+        activePhys.jumpHeight + 0.65,
+      ).position;
+
       if (diveProgress < 1) {
         diveProgress = Math.min(1, diveProgress + dt / diveDuration);
         const ease = 1 - Math.pow(1 - diveProgress, 3);
-        camera.position.lerpVectors(startCamPos, targetVillageCamPos, ease);
-        controls.target.set(0, R_VILLAGE * 0.78, 0);
+        camera.position.lerpVectors(startCamPos, targetInitialCamPos, ease);
+        controls.target.copy(newCharWorldPos);
         if (diveProgress >= 1) {
           setEnteringAtmosphere(false);
         }
       } else if (camTransition) {
-        camTransition.progress = Math.min(1, camTransition.progress + dt * 1.4);
+        camTransition.progress = Math.min(1, camTransition.progress + dt * 1.6);
         const ease = 1 - Math.pow(1 - camTransition.progress, 3);
         camera.position.lerpVectors(camTransition.startPos, camTransition.endPos, ease);
         controls.target.lerpVectors(camTransition.startTarget, camTransition.endTarget, ease);
         if (camTransition.progress >= 1) camTransition = null;
+      } else if (cameraModeRef.current === 'character') {
+        // Third-Person Free Fire Follow Camera: translates smoothly with the character while allowing 360° mouse orbit
+        const deltaMove = newCharWorldPos.clone().sub(prevCharWorldPos);
+        camera.position.add(deltaMove);
+        controls.target.lerp(newCharWorldPos, 0.25);
       }
 
-      // Slowly drift 3D clouds around the Spherical Earth
+      // Animate clouds & village buildings
       cloudsOrbitGroup.rotation.y = elapsed * 0.025;
-
-      // Animate Village Building Details
       if (animatedParts.townHallCrystal) {
         animatedParts.townHallCrystal.rotation.y = elapsed * 1.4;
         animatedParts.townHallCrystal.position.y = 5.2 + Math.sin(elapsed * 2.5) * 0.2;
       }
-      if (animatedParts.mineWheel) {
-        animatedParts.mineWheel.rotation.z = elapsed * 1.8;
-      }
+      if (animatedParts.mineWheel) animatedParts.mineWheel.rotation.z = elapsed * 1.8;
       if (animatedParts.elixirLiquid) {
-        const pumpScale = 0.75 + (Math.sin(elapsed * 2.2) * 0.5 + 0.5) * 0.35;
-        animatedParts.elixirLiquid.scale.y = pumpScale;
+        animatedParts.elixirLiquid.scale.y = 0.75 + (Math.sin(elapsed * 2.2) * 0.5 + 0.5) * 0.35;
       }
       if (animatedParts.cannonTurret) {
         animatedParts.cannonTurret.rotation.y = Math.sin(elapsed * 0.8) * 0.85;
       }
       if (animatedParts.campfireFlame) {
         const flicker = 0.9 + Math.sin(elapsed * 14) * 0.12;
-        animatedParts.campfireFlame.scale.set(flicker, 1 + Math.cos(elapsed * 18) * 0.15, flicker);
-      }
-
-      if (selectionHighlight.visible) {
-        const pulse = 1 + Math.sin(elapsed * 5) * 0.04;
-        selectionHighlight.scale.setScalar((selectedEntity?.size ?? 2) * TILE_WORLD * pulse);
+        animatedParts.campfireFlame.scale.set(
+          flicker,
+          1 + Math.cos(elapsed * 18) * 0.15,
+          flicker,
+        );
       }
 
       controls.update();
@@ -937,8 +2048,11 @@ function EarthBase3DView({ onExitToSpace }: { onExitToSpace: () => void }) {
 
     return () => {
       cancelAnimationFrame(animId);
+      if (skillTimer) window.clearTimeout(skillTimer);
+      if (emoteTimer) window.clearTimeout(emoteTimer);
       window.removeEventListener('resize', onResize);
       window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
       renderer.domElement.removeEventListener('pointerdown', onPointerDown);
       renderer.domElement.removeEventListener('pointerup', onPointerUp);
       controls.dispose();
@@ -946,8 +2060,33 @@ function EarthBase3DView({ onExitToSpace }: { onExitToSpace: () => void }) {
     };
   }, [onExitToSpace]);
 
+  // Passive EP/HP regeneration when sleeping or using DJ Alok's skill
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      if (posture === 'sleep' || skillActive) {
+        setHp((h) => Math.min(200, h + 5));
+        setEp((e) => Math.min(200, e + 8));
+      }
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [posture, skillActive]);
+
+  const currentSpec = FREE_FIRE_CHARACTERS[activeChar];
+
   return (
-    <div className="relative h-screen w-screen overflow-hidden select-none bg-[#030712]">
+    <div
+      className="relative h-screen w-screen overflow-hidden select-none bg-[#030712]"
+      onPointerMove={(e) => {
+        if (joyDraggingRef.current) updateJoystickFromEvent(e.clientX, e.clientY);
+      }}
+      onPointerUp={() => {
+        if (joyDraggingRef.current) {
+          joyDraggingRef.current = false;
+          setJoyKnob({ x: 0, y: 0 });
+          joystickVectorRef.current = { x: 0, y: 0 };
+        }
+      }}
+    >
       <div ref={containerRef} className="fixed inset-0 h-full w-full z-[1]" />
 
       {enteringAtmosphere && (
@@ -955,119 +2094,310 @@ function EarthBase3DView({ onExitToSpace }: { onExitToSpace: () => void }) {
           <div className="glass-panel px-6 py-3 rounded-2xl flex items-center gap-3 border-sky-300/60">
             <Compass className="w-5 h-5 text-sky-300 animate-spin" />
             <span className="font-display text-sm sm:text-base font-bold tracking-widest uppercase text-white">
-              Entering Spherical Earth // Continental Highland Outpost...
+              Deploying Free Fire Heroes // Spherical Earth Outpost...
             </span>
           </div>
         </div>
       )}
 
-      {/* TOP CLASH-OF-CLANS + SPHERICAL GLOBE CONTROLS HUD */}
+      {/* ==================== TOP HEADER HUD ==================== */}
       <header className="fixed top-0 left-0 right-0 z-20 p-3 sm:p-4 pointer-events-none flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-2 pointer-events-auto">
-          <div className="glass-panel rounded-2xl px-3.5 py-2 flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-sky-400 to-blue-600 flex items-center justify-center font-display font-bold text-white shadow-lg">
-              1
+          {/* Active Free Fire Character Badge */}
+          <div className="glass-panel rounded-2xl px-3.5 py-2 flex items-center gap-3 border-amber-400/50">
+            <div
+              className="w-9 h-9 rounded-xl flex items-center justify-center font-display font-bold text-slate-950 shadow-lg"
+              style={{ backgroundColor: currentSpec.accentColor }}
+            >
+              {activeChar === 'alok' ? <Music className="w-5 h-5" /> : <Zap className="w-5 h-5" />}
             </div>
             <div>
-              <div className="font-display font-bold text-sm text-white leading-tight">
-                Planet Earth // Sector 01
+              <div className="font-display font-bold text-sm text-white leading-tight flex items-center gap-2">
+                <span>{currentSpec.name}</span>
+                <span className="text-[10px] font-mono-tech uppercase px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-400/40">
+                  {posture.toUpperCase()}
+                </span>
               </div>
-              <div className="text-[11px] font-mono-tech text-emerald-300 flex items-center gap-1">
-                <Hammer className="w-3 h-3" /> 1 / 1 Builders Free
+              <div className="text-[11px] font-mono-tech text-slate-300">
+                {currentSpec.title} // <span className="text-emerald-300">1/1 Builders</span>
               </div>
             </div>
           </div>
 
-          {/* Camera Toggle: Village Horizon vs Full 3D Globe */}
-          <div className="glass-panel rounded-2xl p-1.5 flex items-center gap-1.5">
+          {/* Camera Mode Switcher: 3rd-Person Character vs Village vs Full Globe */}
+          <div className="glass-panel rounded-2xl p-1.5 flex items-center gap-1">
             <button
-              onClick={() => camPresetRef.current?.('village')}
-              className={`glass-pill px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 ${
+              onClick={() => actionsBridgeRef.current?.setCamPreset('character')}
+              className={`glass-pill px-2.5 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 ${
+                cameraMode === 'character' ? 'active-amber text-white' : 'text-slate-300'
+              }`}
+            >
+              <User className="w-3.5 h-3.5 text-amber-300" />
+              <span>Hero Cam</span>
+              <span className="kbd-badge">1</span>
+            </button>
+            <button
+              onClick={() => actionsBridgeRef.current?.setCamPreset('village')}
+              className={`glass-pill px-2.5 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 ${
                 cameraMode === 'village' ? 'active text-white' : 'text-slate-300'
               }`}
             >
               <MapPin className="w-3.5 h-3.5 text-emerald-300" />
-              <span>Village View</span>
-              <span className="kbd-badge">1</span>
+              <span>Village</span>
+              <span className="kbd-badge">2</span>
             </button>
             <button
-              onClick={() => camPresetRef.current?.('globe')}
-              className={`glass-pill px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 ${
+              onClick={() => actionsBridgeRef.current?.setCamPreset('globe')}
+              className={`glass-pill px-2.5 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 ${
                 cameraMode === 'globe' ? 'active text-white' : 'text-slate-300'
               }`}
             >
               <Globe2 className="w-3.5 h-3.5 text-sky-300" />
-              <span>Full Globe View</span>
-              <span className="kbd-badge">2</span>
+              <span>Full Globe</span>
+              <span className="kbd-badge">3</span>
             </button>
           </div>
 
           <button
             onClick={onExitToSpace}
-            className="glass-pill px-3.5 py-2 rounded-2xl text-xs font-semibold text-white flex items-center gap-2 shadow-lg hover:border-amber-400/60"
+            className="glass-pill px-3 py-2 rounded-2xl text-xs font-semibold text-white flex items-center gap-1.5 shadow-lg hover:border-amber-400/60"
           >
             <Rocket className="w-4 h-4 text-amber-300" />
-            <span>Return to Solar System</span>
+            <span className="hidden sm:inline">Solar System</span>
             <span className="kbd-badge">Esc</span>
           </button>
         </div>
 
-        {/* Resource Counters */}
+        {/* Right: Character Switcher Cards (DJ Alok & Kelly) + Village Resources */}
         <div className="flex flex-wrap items-center gap-2 pointer-events-auto">
-          <div className="glass-panel rounded-2xl px-3.5 py-2 flex items-center gap-2.5 border-amber-400/40">
-            <Coins className="w-4 h-4 text-amber-400" />
-            <div>
-              <div className="text-[10px] font-mono-tech uppercase text-slate-400">Gold</div>
-              <div className="font-display font-bold text-sm text-amber-300">1,500 / 2,500</div>
-            </div>
+          <div className="glass-panel rounded-2xl p-1.5 flex items-center gap-1.5">
+            <button
+              onClick={() => actionsBridgeRef.current?.switchCharacter('alok')}
+              className={`glass-pill px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-2 ${
+                activeChar === 'alok' ? 'active-amber text-white' : 'text-slate-300'
+              }`}
+            >
+              <Music className="w-3.5 h-3.5 text-amber-300" />
+              <span>DJ Alok</span>
+            </button>
+            <button
+              onClick={() => actionsBridgeRef.current?.switchCharacter('kelly')}
+              className={`glass-pill px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-2 ${
+                activeChar === 'kelly' ? 'active-amber text-white' : 'text-slate-300'
+              }`}
+            >
+              <Zap className="w-3.5 h-3.5 text-yellow-300" />
+              <span>Kelly</span>
+            </button>
+            <span className="kbd-badge mr-1" title="Press Tab to Switch Character">
+              Tab
+            </span>
           </div>
 
-          <div className="glass-panel rounded-2xl px-3.5 py-2 flex items-center gap-2.5 border-fuchsia-400/40">
-            <Droplets className="w-4 h-4 text-fuchsia-400" />
-            <div>
-              <div className="text-[10px] font-mono-tech uppercase text-slate-400">Elixir</div>
-              <div className="font-display font-bold text-sm text-fuchsia-300">1,500 / 2,500</div>
+          <div className="hidden lg:flex items-center gap-1.5">
+            <div className="glass-panel rounded-2xl px-3 py-1.5 flex items-center gap-2 border-amber-400/40">
+              <Coins className="w-3.5 h-3.5 text-amber-400" />
+              <span className="font-display font-bold text-xs text-amber-300">1,500</span>
             </div>
-          </div>
-
-          <div className="glass-panel rounded-2xl px-3.5 py-2 flex items-center gap-2.5 border-emerald-400/40">
-            <Sparkles className="w-4 h-4 text-emerald-400" />
-            <div>
-              <div className="text-[10px] font-mono-tech uppercase text-slate-400">Gems</div>
-              <div className="font-display font-bold text-sm text-emerald-300">250</div>
+            <div className="glass-panel rounded-2xl px-3 py-1.5 flex items-center gap-2 border-fuchsia-400/40">
+              <Droplets className="w-3.5 h-3.5 text-fuchsia-400" />
+              <span className="font-display font-bold text-xs text-fuchsia-300">1,500</span>
+            </div>
+            <div className="glass-panel rounded-2xl px-3 py-1.5 flex items-center gap-2 border-emerald-400/40">
+              <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+              <span className="font-display font-bold text-xs text-emerald-300">250</span>
             </div>
           </div>
         </div>
       </header>
 
-      {/* BOTTOM CLASH-OF-CLANS SELECTED BUILDING INSPECTOR BAR */}
-      {selectedEntity && (
-        <footer className="fixed bottom-4 left-1/2 -translate-x-1/2 z-20 w-[calc(100vw-2rem)] max-w-xl pointer-events-auto">
-          <div className="glass-panel rounded-3xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-emerald-400/40">
+      {/* ==================== BOTTOM-LEFT: FREE FIRE VIRTUAL ANALOG JOYSTICK ==================== */}
+      <div className="fixed bottom-16 left-6 sm:left-10 z-20 flex flex-col items-center gap-2 pointer-events-auto">
+        <div
+          ref={joyBaseRef}
+          onPointerDown={(e) => {
+            e.stopPropagation();
+            joyDraggingRef.current = true;
+            updateJoystickFromEvent(e.clientX, e.clientY);
+          }}
+          className="relative w-32 h-32 sm:w-36 sm:h-36 rounded-full bg-slate-950/65 border-2 border-sky-400/40 backdrop-blur-md flex items-center justify-center shadow-[0_0_30px_rgba(0,0,0,0.75)] cursor-grab active:cursor-grabbing"
+        >
+          {/* Outer Compass Ring Markings */}
+          <div className="absolute inset-2 rounded-full border border-dashed border-slate-600/60 pointer-events-none" />
+          <span className="absolute top-2 text-[9px] font-mono-tech text-sky-400/70">W</span>
+          <span className="absolute bottom-2 text-[9px] font-mono-tech text-sky-400/70">S</span>
+          <span className="absolute left-2.5 text-[9px] font-mono-tech text-sky-400/70">A</span>
+          <span className="absolute right-2.5 text-[9px] font-mono-tech text-sky-400/70">D</span>
+
+          {/* Draggable Thumbstick Knob */}
+          <div
+            style={{
+              transform: `translate(${joyKnob.x}px, ${joyKnob.y}px)`,
+            }}
+            className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-gradient-to-br from-amber-400 via-orange-500 to-amber-600 border-2 border-white/90 shadow-[0_0_20px_rgba(245,158,11,0.85)] flex items-center justify-center pointer-events-none transition-transform duration-75"
+          >
+            <div className="w-4 h-4 rounded-full bg-white/80" />
+          </div>
+        </div>
+        <span className="text-[10px] font-mono-tech uppercase tracking-wider text-slate-400 bg-slate-950/80 px-2.5 py-0.5 rounded-full border border-slate-800">
+          Joystick / WASD
+        </span>
+      </div>
+
+      {/* ==================== BOTTOM-CENTER: FREE FIRE HP / EP BAR & BUILDING INSPECTOR ==================== */}
+      <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-20 w-[calc(100vw-2rem)] max-w-md pointer-events-auto flex flex-col gap-2">
+        {selectedEntity && (
+          <div className="glass-panel rounded-2xl p-3 flex items-center justify-between gap-3 border-emerald-400/40">
             <div>
               <div className="flex items-center gap-2">
-                <span className="text-[10px] font-mono-tech uppercase px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                <span className="text-[9px] font-mono-tech uppercase px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300">
                   {selectedEntity.category}
                 </span>
                 <span className="text-xs font-mono-tech text-amber-300 font-semibold">
-                  Level {selectedEntity.level}
+                  Lv.{selectedEntity.level}
+                </span>
+                <span className="font-display text-sm font-bold text-white">
+                  {selectedEntity.name}
                 </span>
               </div>
-              <h3 className="font-display text-xl font-bold text-white mt-0.5">
-                {selectedEntity.name}
-              </h3>
-              <p className="text-xs text-slate-300 mt-0.5">{selectedEntity.description}</p>
+              <p className="text-[11px] text-slate-300 mt-0.5 line-clamp-1">
+                {selectedEntity.description}
+              </p>
             </div>
-
-            <div className="flex items-center gap-2 self-end sm:self-center">
-              <div className="glass-pill px-3.5 py-2 rounded-xl text-xs font-medium text-sky-300 flex items-center gap-1.5">
-                <Shield className="w-3.5 h-3.5" />
-                <span>Spherical Tile ({selectedEntity.size}x{selectedEntity.size})</span>
-              </div>
+            <div className="glass-pill px-2.5 py-1 rounded-xl text-[11px] font-mono-tech text-sky-300 whitespace-nowrap">
+              <Shield className="w-3 h-3 inline mr-1" />
+              {selectedEntity.size}x{selectedEntity.size}
             </div>
           </div>
-        </footer>
-      )}
+        )}
+
+        {/* Authentic Free Fire EP (Yellow) + HP (White/Green) Status Bar */}
+        <div className="glass-panel rounded-2xl px-4 py-2.5 border-slate-700/80">
+          <div className="flex items-center justify-between text-[10px] font-mono-tech mb-1">
+            <span className="text-amber-300 flex items-center gap-1 font-semibold">
+              <Zap className="w-3 h-3" /> EP {ep}/200
+            </span>
+            <span className="text-slate-300 uppercase tracking-wider">
+              {skillActive ? `🔥 ${currentSpec.skillName.toUpperCase()} ACTIVE!` : currentSpec.skillName}
+            </span>
+            <span className="text-emerald-300 flex items-center gap-1 font-bold">
+              <Heart className="w-3 h-3 fill-emerald-400" /> HP {hp}/200
+            </span>
+          </div>
+
+          {/* EP Bar */}
+          <div className="w-full h-1.5 bg-slate-900 rounded-full overflow-hidden mb-1.5">
+            <div
+              className="h-full bg-gradient-to-r from-amber-400 to-yellow-300 transition-all duration-300"
+              style={{ width: `${(ep / 200) * 100}%` }}
+            />
+          </div>
+
+          {/* HP Bar */}
+          <div className="w-full h-2.5 bg-slate-900 rounded-full overflow-hidden border border-slate-700/80">
+            <div
+              className="h-full bg-gradient-to-r from-emerald-500 via-emerald-400 to-white transition-all duration-300"
+              style={{ width: `${(hp / 200) * 100}%` }}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* ==================== BOTTOM-RIGHT: FREE FIRE ACTION & POSTURE CLUSTER ==================== */}
+      <div className="fixed bottom-6 right-5 sm:right-8 z-20 flex flex-col items-end gap-2.5 pointer-events-auto">
+        {/* Top Row: Sprint Lock & Booyah Emote */}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => actionsBridgeRef.current?.triggerEmote()}
+            className={`w-12 h-12 rounded-2xl glass-pill flex flex-col items-center justify-center gap-0.5 ${
+              isEmoting ? 'active-amber text-white' : 'text-slate-200'
+            }`}
+            title="Booyah Dance Emote [B]"
+          >
+            <Smile className="w-4 h-4 text-pink-400" />
+            <span className="text-[9px] font-mono-tech">Emote [B]</span>
+          </button>
+
+          <button
+            onClick={() => {
+              isSprintingRef.current = !isSprintingRef.current;
+              setIsSprinting(isSprintingRef.current);
+              if (isSprintingRef.current && postureRef.current !== 'stand') {
+                postureRef.current = 'stand';
+                setPosture('stand');
+              }
+            }}
+            className={`w-14 h-12 rounded-2xl glass-pill flex flex-col items-center justify-center gap-0.5 ${
+              isSprinting ? 'active-amber text-white' : 'text-slate-200'
+            }`}
+            title="Toggle Sprint [Shift]"
+          >
+            <Footprints className="w-4 h-4 text-amber-300" />
+            <span className="text-[9px] font-mono-tech">Sprint</span>
+          </button>
+        </div>
+
+        {/* Main Cluster: Active Skill + Jump + Sit/Crouch + Sleep/Prone */}
+        <div className="flex items-center gap-2.5">
+          {/* Active Character Skill Button ("Drop the Beat" / "Deadly Velocity") */}
+          <button
+            onClick={() => actionsBridgeRef.current?.activateSkill()}
+            className={`w-16 h-16 rounded-full flex flex-col items-center justify-center border-2 transition-all shadow-lg ${
+              skillActive
+                ? 'bg-gradient-to-br from-amber-400 via-fuchsia-500 to-indigo-600 border-white scale-105 shadow-[0_0_30px_rgba(245,158,11,0.9)]'
+                : 'bg-slate-900/85 border-amber-400/70 hover:border-amber-300 hover:scale-105'
+            }`}
+            title={`${currentSpec.skillName}: ${currentSpec.skillDesc} [F]`}
+          >
+            {activeChar === 'alok' ? (
+              <Music className="w-6 h-6 text-amber-300" />
+            ) : (
+              <Zap className="w-6 h-6 text-yellow-300" />
+            )}
+            <span className="text-[9px] font-mono-tech font-bold text-white mt-0.5">
+              SKILL [F]
+            </span>
+          </button>
+
+          {/* Sit / Crouch Button */}
+          <button
+            onClick={() => actionsBridgeRef.current?.setPostureState('sit')}
+            className={`w-14 h-14 rounded-full glass-pill flex flex-col items-center justify-center border-2 ${
+              posture === 'sit'
+                ? 'active border-sky-400 text-white scale-105'
+                : 'border-slate-600/70 text-slate-200'
+            }`}
+            title="Sit / Crouch [C]"
+          >
+            <span className="text-xs font-display font-bold">SIT</span>
+            <span className="text-[9px] font-mono-tech text-sky-300">[C]</span>
+          </button>
+
+          {/* Sleep / Prone Button */}
+          <button
+            onClick={() => actionsBridgeRef.current?.setPostureState('sleep')}
+            className={`w-14 h-14 rounded-full glass-pill flex flex-col items-center justify-center border-2 ${
+              posture === 'sleep'
+                ? 'active border-indigo-400 text-white scale-105'
+                : 'border-slate-600/70 text-slate-200'
+            }`}
+            title="Sleep / Lie Prone [Z]"
+          >
+            <Moon className="w-4 h-4 text-indigo-300" />
+            <span className="text-[9px] font-mono-tech text-indigo-200">SLEEP [Z]</span>
+          </button>
+
+          {/* Jump Button */}
+          <button
+            onClick={() => actionsBridgeRef.current?.triggerJump()}
+            className="w-16 h-16 rounded-full bg-gradient-to-br from-sky-400 to-blue-600 border-2 border-white/80 shadow-[0_0_22px_rgba(56,189,248,0.65)] hover:scale-105 active:scale-95 flex flex-col items-center justify-center text-white transition-transform"
+            title="Jump [Space]"
+          >
+            <ArrowUp className="w-6 h-6 stroke-[2.5]" />
+            <span className="text-[9px] font-mono-tech font-bold">JUMP</span>
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

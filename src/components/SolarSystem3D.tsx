@@ -3850,3 +3850,10 @@ export default function SolarSystem3D() {
     </div>
   );
 }
+<button
+            onClick={() => window.dispatchEvent(new CustomEvent('enter-earth-base'))}
+            className="glass-pill flex-1 py-2 px-2.5 rounded-xl text-xs font-semibold text-emerald-300 border-emerald-500/40 flex items-center justify-center gap-1.5"
+          >
+            <span>Enter Base</span>
+            <span className="kbd-badge">E</span>
+          </button>

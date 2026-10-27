@@ -848,3 +848,7 @@ export default function EarthBase3D({ onExitToSpace }: { onExitToSpace: () => vo
     </div>
   );
 }
+import { CyberAvatar } from './CyberAvatar';
+
+// Place this inside your <Canvas> tags:
+<CyberAvatar position={[0, -1, 2]} />

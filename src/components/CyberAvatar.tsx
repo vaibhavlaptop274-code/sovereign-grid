@@ -6,7 +6,7 @@ export function CyberAvatar(props: any) {
   return (
     <group {...props} dispose={null}>
       <pointLight position={[0, 0.5, 0]} color="#00ffcc" intensity={2} distance={3} />
-      <primitive object={scene} scale={1.2} position={[0, 0, 0]} />
+      <primitive object={scene} scale={1.5} position={[0, 0, 0]} />
     </group>
   );
 }

@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { Rocket, Hammer, Shield, Coins, Droplets, Sparkles, Compass } from 'lucide-react';
-import { CyberAvatar } from './CyberAvatar';
+
 export interface BaseEntity {
   id: string;
   name: string;
@@ -24,6 +25,16 @@ const INITIAL_BASE_ENTITIES: BaseEntity[] = [
     gridZ: 0,
     size: 3,
     description: 'The heart of your Earth village. Upgrading unlocks new buildings and defenses.',
+  },
+  {
+    id: 'cyber_merc',
+    name: 'Tactical Cyber Mercenary',
+    category: 'army',
+    level: 1,
+    gridX: 0,
+    gridZ: 3,
+    size: 2,
+    description: 'Elite 3D hero unit guarding your Earth Outpost.',
   },
   {
     id: 'gold_mine_1',
@@ -60,7 +71,7 @@ const INITIAL_BASE_ENTITIES: BaseEntity[] = [
     name: 'Cannon',
     category: 'defense',
     level: 1,
-    gridX: 2,
+    gridX: 3,
     gridZ: 3,
     size: 2,
     description: 'Point-defense turret that rotates 360° to guard your starter base.',
@@ -75,7 +86,6 @@ const INITIAL_BASE_ENTITIES: BaseEntity[] = [
     size: 3,
     description: 'Open-air muster ground where your troops gather around the watchfire.',
   },
-  // Starter obstacles scattered around the clearing (just like a new Clash of Clans base)
   {
     id: 'obs_pine_1',
     name: 'Old Pine Tree',
@@ -123,7 +133,7 @@ const GRID_TILES = 18; // 18x18 buildable Clash of Clans grid
 
 export default function EarthBase3D({ onExitToSpace }: { onExitToSpace: () => void }) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [selectedEntity, setSelectedEntity] = useState<BaseEntity | null>(INITIAL_BASE_ENTITIES[0]);
+  const [selectedEntity, setSelectedEntity] = useState<BaseEntity | null>(INITIAL_BASE_ENTITIES[1]);
   const [enteringAtmosphere, setEnteringAtmosphere] = useState(true);
 
   useEffect(() => {
@@ -142,7 +152,6 @@ export default function EarthBase3D({ onExitToSpace }: { onExitToSpace: () => vo
       0.5,
       600,
     );
-    // Start high up in Earth's upper atmosphere for the dive-in animation
     camera.position.set(0, 145, 95);
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
@@ -158,9 +167,8 @@ export default function EarthBase3D({ onExitToSpace }: { onExitToSpace: () => vo
     controls.enableDamping = true;
     controls.dampingFactor = 0.07;
     controls.target.set(0, 0, 0);
-    controls.minDistance = 14;
+    controls.minDistance = 8;
     controls.maxDistance = 85;
-    // Lock polar angle so camera stays above the ground like Clash of Clans
     controls.maxPolarAngle = Math.PI / 2.25;
     controls.minPolarAngle = Math.PI / 6;
 
@@ -184,7 +192,6 @@ export default function EarthBase3D({ onExitToSpace }: { onExitToSpace: () => vo
     scene.add(sunLight);
 
     /* ---------- 2. OCEAN, ISLAND CLIFFS & CHECKERED GRASS GRID ---------- */
-    // Sparkling Ocean Water
     const waterGeo = new THREE.PlaneGeometry(500, 500, 32, 32);
     const waterMat = new THREE.MeshStandardMaterial({
       color: 0x1ca3ec,
@@ -196,7 +203,6 @@ export default function EarthBase3D({ onExitToSpace }: { onExitToSpace: () => vo
     waterMesh.position.y = -1.6;
     scene.add(waterMesh);
 
-    // Sandy Beach Rim
     const beachGeo = new THREE.CylinderGeometry(42, 45, 1.2, 48);
     const beachMat = new THREE.MeshStandardMaterial({ color: 0xeed690, roughness: 0.9 });
     const beachMesh = new THREE.Mesh(beachGeo, beachMat);
@@ -204,7 +210,6 @@ export default function EarthBase3D({ onExitToSpace }: { onExitToSpace: () => vo
     beachMesh.receiveShadow = true;
     scene.add(beachMesh);
 
-    // Main Green Continent Plateau (Wilderness surrounding the village grid)
     const islandGeo = new THREE.CylinderGeometry(36, 39, 1.4, 48);
     const islandMat = new THREE.MeshStandardMaterial({ color: 0x458b22, roughness: 0.88 });
     const islandMesh = new THREE.Mesh(islandGeo, islandMat);
@@ -212,7 +217,6 @@ export default function EarthBase3D({ onExitToSpace }: { onExitToSpace: () => vo
     islandMesh.receiveShadow = true;
     scene.add(islandMesh);
 
-    // Clash of Clans 18x18 Alternating Checkered Grass Grid
     const gridGroup = new THREE.Group();
     const tileGeo = new THREE.BoxGeometry(TILE_SIZE * 0.98, 0.16, TILE_SIZE * 0.98);
     const lightGrassMat = new THREE.MeshStandardMaterial({ color: 0x68c138, roughness: 0.85 });
@@ -234,7 +238,6 @@ export default function EarthBase3D({ onExitToSpace }: { onExitToSpace: () => vo
     }
     scene.add(gridGroup);
 
-    // Subtle Stone Border Path around the 18x18 Village Clearing
     const borderFrameGeo = new THREE.RingGeometry(
       GRID_TILES * TILE_SIZE * 0.707,
       GRID_TILES * TILE_SIZE * 0.73,
@@ -312,13 +315,11 @@ export default function EarthBase3D({ onExitToSpace }: { onExitToSpace: () => vo
       return rock;
     }
 
-    // Ring of wilderness trees outside the buildable grid
     for (let i = 0; i < 68; i++) {
       const angle = (i / 68) * Math.PI * 2 + (Math.random() - 0.5) * 0.08;
       const dist = 23 + Math.random() * 10;
       const wx = Math.cos(angle) * dist;
       const wz = Math.sin(angle) * dist;
-      // Keep inside circular island and outside square grid
       if (Math.abs(wx) < 19.5 && Math.abs(wz) < 19.5) continue;
 
       const s = 0.8 + Math.random() * 0.55;
@@ -328,8 +329,9 @@ export default function EarthBase3D({ onExitToSpace }: { onExitToSpace: () => vo
       scene.add(tree);
     }
 
-    /* ---------- 4. 3D CLASH OF CLANS STARTER BUILDINGS ---------- */
+    /* ---------- 4. 3D CLASH OF CLANS STARTER BUILDINGS + CYBER MERCENARY ---------- */
     const clickableMeshes: THREE.Object3D[] = [];
+    let characterMixer: THREE.AnimationMixer | null = null;
     const animatedParts: {
       cannonTurret?: THREE.Object3D;
       elixirLiquid?: THREE.Object3D;
@@ -346,7 +348,10 @@ export default function EarthBase3D({ onExitToSpace }: { onExitToSpace: () => vo
       if (entity.category !== 'obstacle') {
         const pad = new THREE.Mesh(
           new THREE.BoxGeometry(footprintSize * 0.92, 0.25, footprintSize * 0.92),
-          new THREE.MeshStandardMaterial({ color: 0x8b939c, roughness: 0.85 }),
+          new THREE.MeshStandardMaterial({
+            color: entity.id === 'cyber_merc' ? 0x0f172a : 0x8b939c,
+            roughness: 0.85,
+          }),
         );
         pad.position.y = 0.125;
         pad.castShadow = true;
@@ -354,8 +359,66 @@ export default function EarthBase3D({ onExitToSpace }: { onExitToSpace: () => vo
         root.add(pad);
       }
 
-      if (entity.id === 'town_hall') {
-        // Town Hall Lv. 1: Stone & timber keep + orange tiled roof + glowing Sovereign Crystal
+      if (entity.id === 'cyber_merc') {
+        // Glowing Neon Cyan Hero Pedestal Ring
+        const neonRing = new THREE.Mesh(
+          new THREE.RingGeometry(1.1, 1.35, 32),
+          new THREE.MeshBasicMaterial({ color: 0x00ffcc, side: THREE.DoubleSide }),
+        );
+        neonRing.rotation.x = -Math.PI / 2;
+        neonRing.position.y = 0.27;
+        root.add(neonRing);
+
+        const heroLight = new THREE.PointLight(0x00ffcc, 3, 6);
+        heroLight.position.set(0, 1.2, 0);
+        root.add(heroLight);
+
+        // Load /cyber_merc.glb from public/ folder
+        const loader = new GLTFLoader();
+        loader.load(
+          '/cyber_merc.glb',
+          (gltf) => {
+            const model = gltf.scene;
+
+            // Auto-scale and center the model so it stands cleanly on the pedestal
+            const box = new THREE.Box3().setFromObject(model);
+            const size = box.getSize(new THREE.Vector3());
+            const maxDim = Math.max(size.x, size.y, size.z);
+            const targetHeight = 3.2; // Stand tall and clearly visible infront of Town Hall
+            const scale = maxDim > 0 ? targetHeight / maxDim : 2.0;
+            model.scale.setScalar(scale);
+
+            // Recompute bounding box after scaling so feet touch the pedestal at y = 0.25
+            const scaledBox = new THREE.Box3().setFromObject(model);
+            const center = scaledBox.getCenter(new THREE.Vector3());
+            model.position.x = -center.x;
+            model.position.z = -center.z;
+            model.position.y = 0.25 - scaledBox.min.y;
+
+            model.traverse((child) => {
+              if ((child as THREE.Mesh).isMesh) {
+                child.castShadow = true;
+                child.receiveShadow = true;
+                child.userData = { entity };
+                clickableMeshes.push(child);
+              }
+            });
+
+            root.add(model);
+
+            // Play embedded Meshy AI animation if present
+            if (gltf.animations && gltf.animations.length > 0) {
+              characterMixer = new THREE.AnimationMixer(model);
+              const action = characterMixer.clipAction(gltf.animations[0]);
+              action.play();
+            }
+          },
+          undefined,
+          (error) => {
+            console.error('Error loading /cyber_merc.glb:', error);
+          },
+        );
+      } else if (entity.id === 'town_hall') {
         const walls = new THREE.Mesh(
           new THREE.BoxGeometry(4.2, 2.4, 3.8),
           new THREE.MeshStandardMaterial({ color: 0xd6c7b2, roughness: 0.8 }),
@@ -365,7 +428,6 @@ export default function EarthBase3D({ onExitToSpace }: { onExitToSpace: () => vo
         walls.receiveShadow = true;
         root.add(walls);
 
-        // Timber pillars at corners
         const pillarGeo = new THREE.BoxGeometry(0.45, 2.5, 0.45);
         const woodMat = new THREE.MeshStandardMaterial({ color: 0x6e4720, roughness: 0.85 });
         [
@@ -380,7 +442,6 @@ export default function EarthBase3D({ onExitToSpace }: { onExitToSpace: () => vo
           root.add(p);
         });
 
-        // Pitched Roof
         const roof = new THREE.Mesh(
           new THREE.ConeGeometry(3.4, 2.0, 4),
           new THREE.MeshStandardMaterial({ color: 0xd95f18, roughness: 0.75 }),
@@ -390,7 +451,6 @@ export default function EarthBase3D({ onExitToSpace }: { onExitToSpace: () => vo
         roof.castShadow = true;
         root.add(roof);
 
-        // Glowing Doorway
         const door = new THREE.Mesh(
           new THREE.BoxGeometry(1.1, 1.5, 0.2),
           new THREE.MeshBasicMaterial({ color: 0xffcf40 }),
@@ -398,7 +458,6 @@ export default function EarthBase3D({ onExitToSpace }: { onExitToSpace: () => vo
         door.position.set(0, 1.0, 1.9);
         root.add(door);
 
-        // Floating Sovereign Crystal above Town Hall
         const crystal = new THREE.Mesh(
           new THREE.OctahedronGeometry(0.55, 0),
           new THREE.MeshStandardMaterial({
@@ -412,7 +471,6 @@ export default function EarthBase3D({ onExitToSpace }: { onExitToSpace: () => vo
         root.add(crystal);
         animatedParts.townHallCrystal = crystal;
       } else if (entity.id === 'gold_mine_1') {
-        // Gold Mine: Timber frame, rock mound, gold nuggets & spinning wheel
         const mound = new THREE.Mesh(
           new THREE.ConeGeometry(1.5, 1.5, 7),
           new THREE.MeshStandardMaterial({ color: 0x6b7280, roughness: 0.9 }),
@@ -421,7 +479,6 @@ export default function EarthBase3D({ onExitToSpace }: { onExitToSpace: () => vo
         mound.castShadow = true;
         root.add(mound);
 
-        // Gold ore nuggets
         const goldMat = new THREE.MeshStandardMaterial({
           color: 0xfacc15,
           metalness: 0.65,
@@ -437,7 +494,6 @@ export default function EarthBase3D({ onExitToSpace }: { onExitToSpace: () => vo
           root.add(nugget);
         }
 
-        // Spinning extractor wheel
         const wheel = new THREE.Mesh(
           new THREE.TorusGeometry(0.7, 0.12, 8, 16),
           new THREE.MeshStandardMaterial({ color: 0x784c24, roughness: 0.8 }),
@@ -447,7 +503,6 @@ export default function EarthBase3D({ onExitToSpace }: { onExitToSpace: () => vo
         root.add(wheel);
         animatedParts.mineWheel = wheel;
       } else if (entity.id === 'elixir_collector_1') {
-        // Elixir Collector: Glass vat + glowing pumping purple elixir
         const baseRing = new THREE.Mesh(
           new THREE.CylinderGeometry(1.3, 1.4, 0.5, 16),
           new THREE.MeshStandardMaterial({ color: 0x475569, metalness: 0.4, roughness: 0.5 }),
@@ -529,7 +584,6 @@ export default function EarthBase3D({ onExitToSpace }: { onExitToSpace: () => vo
         root.add(turretGroup);
         animatedParts.cannonTurret = turretGroup;
       } else if (entity.id === 'army_camp') {
-        // Campfire logs + flickering flame
         const fireRing = new THREE.Mesh(
           new THREE.TorusGeometry(0.65, 0.18, 8, 12),
           new THREE.MeshStandardMaterial({ color: 0x64748b, roughness: 0.9 }),
@@ -566,11 +620,9 @@ export default function EarthBase3D({ onExitToSpace }: { onExitToSpace: () => vo
         root.add(gemCluster);
       }
 
-      // Position on the grid
       root.position.set(entity.gridX * TILE_SIZE, 0.08, entity.gridZ * TILE_SIZE);
       root.userData = { entity };
 
-      // Make all child meshes clickable via raycaster
       root.traverse((child) => {
         if ((child as THREE.Mesh).isMesh) {
           child.userData = { entity };
@@ -614,8 +666,8 @@ export default function EarthBase3D({ onExitToSpace }: { onExitToSpace: () => vo
     );
     selectionHighlight.rotation.x = -Math.PI / 2;
     selectionHighlight.rotation.z = Math.PI / 4;
-    selectionHighlight.position.y = 0.14;
-    selectionHighlight.scale.setScalar(3 * TILE_SIZE);
+    selectionHighlight.position.set(0, 0.14, 3 * TILE_SIZE);
+    selectionHighlight.scale.setScalar(2 * TILE_SIZE);
     scene.add(selectionHighlight);
 
     /* ---------- 7. CLICK SELECTION & KEYBOARD HANDLERS ---------- */
@@ -674,9 +726,9 @@ export default function EarthBase3D({ onExitToSpace }: { onExitToSpace: () => vo
     /* ---------- 8. ANIMATION LOOP (ATMOSPHERIC DIVE + BASE IDLE) ---------- */
     const clock = new THREE.Clock();
     let diveProgress = 0;
-    const diveDuration = 1.8; // 1.8s smooth dive through Earth's clouds
+    const diveDuration = 1.8;
     const startCamPos = new THREE.Vector3(0, 145, 95);
-    const targetIsoPos = new THREE.Vector3(28, 24, 28); // Classic Clash of Clans isometric angle
+    const targetIsoPos = new THREE.Vector3(28, 24, 28);
 
     let animId = 0;
     function animate() {
@@ -684,14 +736,16 @@ export default function EarthBase3D({ onExitToSpace }: { onExitToSpace: () => vo
       const dt = Math.min(clock.getDelta(), 0.1);
       const elapsed = clock.getElapsedTime();
 
-      // Smooth Atmospheric Entry Camera Swoop
+      if (characterMixer) {
+        characterMixer.update(dt);
+      }
+
       if (diveProgress < 1) {
         diveProgress = Math.min(1, diveProgress + dt / diveDuration);
         const ease = 1 - Math.pow(1 - diveProgress, 3);
         camera.position.lerpVectors(startCamPos, targetIsoPos, ease);
         controls.target.set(0, 0, 0);
 
-        // Fade out high-altitude clouds once below them
         cloudMat.opacity = Math.max(0, (1 - diveProgress) * 0.85);
         if (diveProgress >= 1) {
           cloudsGroup.visible = false;
@@ -699,7 +753,6 @@ export default function EarthBase3D({ onExitToSpace }: { onExitToSpace: () => vo
         }
       }
 
-      // Animate Building Parts
       if (animatedParts.townHallCrystal) {
         animatedParts.townHallCrystal.rotation.y = elapsed * 1.4;
         animatedParts.townHallCrystal.position.y = 5.2 + Math.sin(elapsed * 2.5) * 0.2;
@@ -719,7 +772,6 @@ export default function EarthBase3D({ onExitToSpace }: { onExitToSpace: () => vo
         animatedParts.campfireFlame.scale.set(flicker, 1 + Math.cos(elapsed * 18) * 0.15, flicker);
       }
 
-      // Pulse selection ring
       if (selectionHighlight.visible) {
         const pulse = 1 + Math.sin(elapsed * 5) * 0.04;
         selectionHighlight.scale.setScalar(
@@ -746,10 +798,8 @@ export default function EarthBase3D({ onExitToSpace }: { onExitToSpace: () => vo
 
   return (
     <div className="relative h-screen w-screen overflow-hidden select-none bg-sky-300">
-      {/* 3D Earth Village Canvas */}
       <div ref={containerRef} className="fixed inset-0 h-full w-full z-[1]" />
 
-      {/* Atmospheric Entry Cloud Flash Banner */}
       {enteringAtmosphere && (
         <div className="fixed inset-0 z-30 pointer-events-none flex items-center justify-center bg-sky-100/30 backdrop-blur-[2px] transition-opacity duration-500">
           <div className="glass-panel px-6 py-3 rounded-2xl flex items-center gap-3 border-sky-300/60">
@@ -761,9 +811,7 @@ export default function EarthBase3D({ onExitToSpace }: { onExitToSpace: () => vo
         </div>
       )}
 
-      {/* TOP CLASH-OF-CLANS STYLE RESOURCE & BUILDER HUD */}
       <header className="fixed top-0 left-0 right-0 z-20 p-3 sm:p-4 pointer-events-none flex flex-wrap items-center justify-between gap-2">
-        {/* Left: Player Level & Return to Orbit Button */}
         <div className="flex items-center gap-2.5 pointer-events-auto">
           <div className="glass-panel rounded-2xl px-3.5 py-2 flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-sky-400 to-blue-600 flex items-center justify-center font-display font-bold text-white shadow-lg">
@@ -789,7 +837,6 @@ export default function EarthBase3D({ onExitToSpace }: { onExitToSpace: () => vo
           </button>
         </div>
 
-        {/* Right: Gold, Elixir & Gems Resource Counters */}
         <div className="flex flex-wrap items-center gap-2 pointer-events-auto">
           <div className="glass-panel rounded-2xl px-3.5 py-2 flex items-center gap-2.5 border-amber-400/40">
             <Coins className="w-4 h-4 text-amber-400" />
@@ -817,7 +864,6 @@ export default function EarthBase3D({ onExitToSpace }: { onExitToSpace: () => vo
         </div>
       </header>
 
-      {/* BOTTOM CLASH-OF-CLANS SELECTED BUILDING INSPECTOR BAR */}
       {selectedEntity && (
         <footer className="fixed bottom-4 left-1/2 -translate-x-1/2 z-20 w-[calc(100vw-2rem)] max-w-xl pointer-events-auto">
           <div className="glass-panel rounded-3xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-emerald-400/40">

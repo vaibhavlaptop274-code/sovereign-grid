@@ -259,6 +259,48 @@ function buildFreeFireCharacterRig(charId: CharacterId): CharacterRig {
   const bodyPivot = new THREE.Group();
   bodyPivot.scale.setScalar(charScale);
   facingGroup.add(bodyPivot);
+  const bodyPivot = new THREE.Group();
+  facingGroup.add(bodyPivot);
+
+  // LOAD YOUR NEW MESHY AI 3D MODEL (/cyber_merc.glb)
+  if (isAlok) {
+    const loader = new GLTFLoader();
+    loader.load('/cyber_merc.glb', (gltf) => {
+      const model = gltf.scene;
+
+      // Auto-scale and align feet to the ground
+      const box = new THREE.Box3().setFromObject(model);
+      const size = box.getSize(new THREE.Vector3());
+      const maxDim = Math.max(size.x, size.y, size.z);
+      const scale = maxDim > 0 ? 2.2 / maxDim : 1.5;
+      model.scale.setScalar(scale);
+
+      const scaledBox = new THREE.Box3().setFromObject(model);
+      const center = scaledBox.getCenter(new THREE.Vector3());
+      model.position.set(-center.x, -scaledBox.min.y, -center.z);
+
+      model.traverse((child) => {
+        if ((child as THREE.Mesh).isMesh) {
+          child.castShadow = true;
+          child.receiveShadow = true;
+        }
+      });
+
+      // Hide the old procedural blocky meshes so only your new 3D model is visible
+      torsoGroup.visible = false;
+      leftLeg.hipPivot.visible = false;
+      rightLeg.hipPivot.visible = false;
+
+      bodyPivot.add(model);
+
+      // Play embedded Meshy animation if present
+      if (gltf.animations && gltf.animations.length > 0) {
+        const mixer = new THREE.AnimationMixer(model);
+        mixer.clipAction(gltf.animations[0]).play();
+        model.userData.mixer = mixer;
+      }
+    });
+  }
 
   // Materials
   const skinMat = new THREE.MeshStandardMaterial({

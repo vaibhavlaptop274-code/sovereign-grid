@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { Rocket, Hammer, Shield, Coins, Droplets, Sparkles, Compass } from 'lucide-react';
-
+import { CyberAvatar } from './CyberAvatar';
 export interface BaseEntity {
   id: string;
   name: string;
@@ -848,7 +848,3 @@ export default function EarthBase3D({ onExitToSpace }: { onExitToSpace: () => vo
     </div>
   );
 }
-import { CyberAvatar } from './CyberAvatar';
-
-// Place this inside your <Canvas> tags:
-<CyberAvatar position={[0, -1, 2]} />

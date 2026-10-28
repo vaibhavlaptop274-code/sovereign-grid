@@ -14,20 +14,20 @@ export type UserProfile = {
 };
 
 export type GameProgress = {
-  powerOutput: number;   // kW
-  batteryLevel: number;  // 0–100
-  gridStatus: 'online' | 'offline' | 'degraded';
-  level: number;
-  score: number;
+  cosmicEnergy: number;        // Total points earned from trackers
+  planetLevel: number;         // Starts at 0 (barren planet)
+  ownedPlanetId: string | null; // Which planet they claimed from the Solar System
+  hasCompletedSetup: boolean;  // True after they create their first tracker on MyTube
+  armyLevel: number;           // Used for asteroid creature fights & clan wars
   updatedAt: unknown;
 };
 
 export const DEFAULT_PROGRESS: Omit<GameProgress, 'updatedAt'> = {
-  powerOutput: 4.2,
-  batteryLevel: 87,
-  gridStatus: 'online',
-  level: 1,
-  score: 0,
+  cosmicEnergy: 0,
+  planetLevel: 0,
+  ownedPlanetId: null,
+  hasCompletedSetup: false,
+  armyLevel: 1,
 };
 
 export async function createUserProfile(uid: string, email: string): Promise<void> {

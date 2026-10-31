@@ -1,4 +1,3 @@
-import { CosmicEffects } from './CosmicEffects'
 import { useState, useEffect } from 'react';
 import { Loader2, AlertTriangle } from 'lucide-react';
 import { AuthProvider, useAuth } from '@/hooks/useAuth';
@@ -29,7 +28,6 @@ function Gate() {
   const { user, loading } = useAuth();
   const [showIntro, setShowIntro] = useState(true);
 
-  // Whenever the user logs out, reset showIntro so the next login triggers the intro again!
   useEffect(() => {
     if (!user) {
       setShowIntro(true);

@@ -1,3 +1,4 @@
+import { CosmicEffects } from './CosmicEffects'
 import { useState, useEffect } from 'react';
 import { Loader2, AlertTriangle } from 'lucide-react';
 import { AuthProvider, useAuth } from '@/hooks/useAuth';

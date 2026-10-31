@@ -256,9 +256,6 @@ function buildFreeFireCharacterRig(charId: CharacterId): CharacterRig {
   bodyPivot.scale.setScalar(charScale);
   facingGroup.add(bodyPivot);
 
-  const bodyPivot = new THREE.Group();
-facingGroup.add(bodyPivot);
-
 // LOAD YOUR NEW MESHY AI 3D MODEL (/cyber_merc.glb) for all characters
 const loader = new GLTFLoader();
 loader.load('/cyber_merc.glb', (gltf) => {

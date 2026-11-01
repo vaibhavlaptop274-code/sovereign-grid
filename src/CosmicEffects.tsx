@@ -1,4 +1,4 @@
-import { useRef, useMemo } from 'react'
+import { useRef, useMemo, Suspense } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { Clouds, Cloud, Sparkles } from '@react-three/drei'
 import * as THREE from 'three'
@@ -22,7 +22,7 @@ export function CosmicEffects() {
   }, [])
 
   // Slowly spins and pulses the wormhole energy every frame
-  useFrame((state, delta) => {
+  useFrame((_state, delta) => {
     if (wormholeRef.current) {
       wormholeRef.current.rotation.z += delta * 0.4
     }
@@ -34,10 +34,12 @@ export function CosmicEffects() {
       <Sparkles count={500} scale={30} size={2.5} speed={0.5} color="#00ffff" />
 
       {/* Volumetric Nebulas */}
-      <Clouds material={THREE.MeshBasicMaterial}>
-        <Cloud segments={40} bounds={[15, 5, 15]} volume={12} color="#7928ca" opacity={0.4} speed={0.2} />
-        <Cloud segments={40} bounds={[12, 4, 12]} volume={10} color="#00dfd8" opacity={0.3} speed={0.3} />
-      </Clouds>
+      <Suspense fallback={null}>
+        <Clouds material={THREE.MeshBasicMaterial}>
+          <Cloud segments={40} bounds={[15, 5, 15]} volume={12} color="#7928ca" opacity={0.4} speed={0.2} />
+          <Cloud segments={40} bounds={[12, 4, 12]} volume={10} color="#00dfd8" opacity={0.3} speed={0.3} />
+        </Clouds>
+      </Suspense>
 
       {/* Sci-Fi Wormhole Tunnel Mesh */}
       <mesh ref={wormholeRef}>

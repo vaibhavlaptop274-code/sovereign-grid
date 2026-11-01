@@ -1,6 +1,6 @@
 import { useGLTF } from '@react-three/drei';
 
-export function CyberAvatar(props: any) {
+export function CyberAvatar(props: Record<string, unknown>) {
   const { scene } = useGLTF('/cyber_merc.glb');
 
   return (
@@ -10,5 +10,3 @@ export function CyberAvatar(props: any) {
     </group>
   );
 }
-
-useGLTF.preload('/cyber_merc.glb');

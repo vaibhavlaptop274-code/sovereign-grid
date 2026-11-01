@@ -19,12 +19,49 @@ type AuthContextType = {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const unconfigured = async () => ({
-  error: 'Firebase is not configured. Set VITE_FIREBASE_* environment variables.',
-});
+const LOCAL_USER_KEY = 'sovereign_grid_local_user';
+
+function createLocalUser(email: string): User {
+  const uid = 'local_' + email.replace(/[^a-zA-Z0-9]/g, '_');
+  return {
+    uid,
+    email,
+    emailVerified: true,
+    isAnonymous: false,
+    metadata: {},
+    providerData: [],
+    refreshToken: '',
+    tenantId: null,
+    delete: async () => {},
+    getIdToken: async () => 'local-token',
+    getIdTokenResult: async () => ({
+      token: 'local-token',
+      authTime: new Date().toISOString(),
+      issuedAtTime: new Date().toISOString(),
+      expirationTime: new Date(Date.now() + 3600000).toISOString(),
+      signInProvider: 'password',
+      signInSecondFactor: null,
+      claims: {},
+    }),
+    reload: async () => {},
+    toJSON: () => ({ uid, email }),
+    displayName: email.split('@')[0],
+    phoneNumber: null,
+    photoURL: null,
+    providerId: 'password',
+  };
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<User | null>(() => {
+    if (auth) return null;
+    try {
+      const savedEmail = localStorage.getItem(LOCAL_USER_KEY);
+      return savedEmail ? createLocalUser(savedEmail) : null;
+    } catch {
+      return null;
+    }
+  });
   const [loading, setLoading] = useState(auth !== null);
 
   useEffect(() => {
@@ -37,7 +74,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signIn = async (email: string, password: string) => {
-    if (!auth) return unconfigured();
+    if (!auth) {
+      const localUser = createLocalUser(email);
+      try {
+        localStorage.setItem(LOCAL_USER_KEY, email);
+      } catch {
+        // ignore storage errors
+      }
+      setUser(localUser);
+      return { error: null };
+    }
     try {
       const cred = await signInWithEmailAndPassword(auth, email, password);
       // Fire-and-forget: update last seen timestamp
@@ -49,7 +95,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const signUp = async (email: string, password: string) => {
-    if (!auth) return unconfigured();
+    if (!auth) {
+      const localUser = createLocalUser(email);
+      try {
+        localStorage.setItem(LOCAL_USER_KEY, email);
+      } catch {
+        // ignore storage errors
+      }
+      setUser(localUser);
+      return { error: null };
+    }
     try {
       const cred = await createUserWithEmailAndPassword(auth, email, password);
       // Create the player's Firestore profile + initial game progress
@@ -61,7 +116,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const signOut = async () => {
-    if (!auth) return;
+    if (!auth) {
+      try {
+        localStorage.removeItem(LOCAL_USER_KEY);
+      } catch {
+        // ignore storage errors
+      }
+      setUser(null);
+      return;
+    }
     await firebaseSignOut(auth);
   };
 

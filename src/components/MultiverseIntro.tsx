@@ -1,6 +1,5 @@
 import { Canvas, useFrame } from '@react-three/fiber'
 import { CosmicEffects } from '@/CosmicEffects'
-import * as THREE from 'three'
 
 // Camera Director component that flies through the wormhole
 function CameraDirector() {

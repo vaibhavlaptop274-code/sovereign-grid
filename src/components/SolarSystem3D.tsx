@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
@@ -19,7 +19,25 @@ import {
   Moon,
   ArrowUp,
   Smile,
+  Menu,
+  X,
+  Lock,
+  Crown,
+  Sliders,
+  PlaySquare,
+  BarChart3,
+  LogOut,
+  Eye,
+  CheckCircle2,
 } from 'lucide-react';
+import { useAuth } from '@/hooks/useAuth';
+import {
+  getAllPlanetOwnerships,
+  claimPlanetForUser,
+  getTotalPlanetsCount,
+  setTotalPlanetsCount,
+  type PlanetOwnership,
+} from '@/lib/firestore';
 
 /* ---------- 0. CLASH OF CLANS + FREE FIRE 3D SPHERICAL EARTH BASE & CHARACTER SYSTEM ---------- */
 
@@ -852,13 +870,27 @@ loader.load(
   };
 }
 
-/* ---------- MAIN EARTH BASE + FREE FIRE CHARACTER VIEW ---------- */
+/* ---------- MAIN PLANET BASE + FREE FIRE CHARACTER VIEW ---------- */
 
-function EarthBase3DView({ onExitToSpace }: { onExitToSpace: () => void }) {
+function EarthBase3DView({
+  planetId,
+  planetName,
+  isOwner,
+  ownerName,
+  onExitToSpace,
+}: {
+  planetId: string;
+  planetName: string;
+  isOwner: boolean;
+  ownerName: string | null;
+  onExitToSpace: () => void;
+}) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [selectedEntity, setSelectedEntity] = useState<BaseEntity | null>(null);
   const [enteringAtmosphere, setEnteringAtmosphere] = useState(true);
-  const [cameraMode, setCameraMode] = useState<'character' | 'village' | 'globe'>('character');
+  const [cameraMode, setCameraMode] = useState<'character' | 'village' | 'globe'>(
+    isOwner ? 'character' : 'globe',
+  );
 
   // Free Fire Character State
   const [activeChar, setActiveChar] = useState<CharacterId>('alok');
@@ -881,7 +913,9 @@ function EarthBase3DView({ onExitToSpace }: { onExitToSpace: () => void }) {
   const isSprintingRef = useRef(false);
   const skillActiveRef = useRef(false);
   const isEmotingRef = useRef(false);
-  const cameraModeRef = useRef<'character' | 'village' | 'globe'>('character');
+  const cameraModeRef = useRef<'character' | 'village' | 'globe'>(
+    isOwner ? 'character' : 'globe',
+  );
 
   const actionsBridgeRef = useRef<{
     triggerJump: () => void;
@@ -894,6 +928,7 @@ function EarthBase3DView({ onExitToSpace }: { onExitToSpace: () => void }) {
 
   // Virtual Joystick Pointer Handlers
   const updateJoystickFromEvent = (clientX: number, clientY: number) => {
+    if (!isOwner) return;
     const base = joyBaseRef.current;
     if (!base) return;
     const rect = base.getBoundingClientRect();
@@ -916,9 +951,11 @@ function EarthBase3DView({ onExitToSpace }: { onExitToSpace: () => void }) {
     if (!container) return;
     container.innerHTML = '';
 
+    const isMobile = window.innerWidth < 768;
+
     /* ---------- 1. SCENE, SPACE STARFIELD & CAMERA ---------- */
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x030712);
+    scene.background = new THREE.Color(0x02040a);
 
     const camera = new THREE.PerspectiveCamera(
       45,
@@ -928,24 +965,31 @@ function EarthBase3DView({ onExitToSpace }: { onExitToSpace: () => void }) {
     );
     camera.position.set(0, R_PLANET + 115, 95);
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+    const renderer = new THREE.WebGLRenderer({
+      antialias: !isMobile,
+      powerPreference: 'high-performance',
+    });
     renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.shadowMap.enabled = true;
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, isMobile ? 1.5 : 2));
+    renderer.shadowMap.enabled = !isMobile;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.12;
+    renderer.toneMappingExposure = 1.15;
     container.appendChild(renderer.domElement);
 
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.07;
-    controls.target.set(0, R_VILLAGE, 0);
+    controls.target.set(0, isOwner ? R_VILLAGE : 0, 0);
     controls.minDistance = 4.5;
     controls.maxDistance = 260;
+    controls.touches = {
+      ONE: THREE.TOUCH.ROTATE,
+      TWO: THREE.TOUCH.DOLLY_PAN,
+    };
 
-    // Background Starfield around the Spherical Earth
-    const starCount = 3500;
+    // Background Starfield around the Planet
+    const starCount = isMobile ? 1800 : 3500;
     const starGeo = new THREE.BufferGeometry();
     const starPos = new Float32Array(starCount * 3);
     for (let i = 0; i < starCount; i++) {
@@ -969,24 +1013,26 @@ function EarthBase3DView({ onExitToSpace }: { onExitToSpace: () => void }) {
 
     const sunLight = new THREE.DirectionalLight(0xfff7ed, 2.4);
     sunLight.position.set(85, 130, 75);
-    sunLight.castShadow = true;
-    sunLight.shadow.mapSize.width = 2048;
-    sunLight.shadow.mapSize.height = 2048;
-    sunLight.shadow.camera.near = 20;
-    sunLight.shadow.camera.far = 260;
-    const d = 65;
-    sunLight.shadow.camera.left = -d;
-    sunLight.shadow.camera.right = d;
-    sunLight.shadow.camera.top = d;
-    sunLight.shadow.camera.bottom = -d;
-    sunLight.shadow.bias = -0.0005;
+    if (!isMobile) {
+      sunLight.castShadow = true;
+      sunLight.shadow.mapSize.width = 1024;
+      sunLight.shadow.mapSize.height = 1024;
+      sunLight.shadow.camera.near = 20;
+      sunLight.shadow.camera.far = 260;
+      const d = 65;
+      sunLight.shadow.camera.left = -d;
+      sunLight.shadow.camera.right = d;
+      sunLight.shadow.camera.top = d;
+      sunLight.shadow.camera.bottom = -d;
+      sunLight.shadow.bias = -0.0005;
+    }
     scene.add(sunLight);
 
     const rimLight = new THREE.DirectionalLight(0x38bdf8, 0.55);
     rimLight.position.set(-90, -70, -80);
     scene.add(rimLight);
 
-    /* ---------- 2. 3D SPHERICAL EARTH TERRAIN (CONTINENTS, MOUNTAINS & OCEANS) ---------- */
+    /* ---------- 2. PHOTOREALISTIC SPHERICAL EARTH GLOBE (NO BLOCKY CHUNKS) ---------- */
     const UP = new THREE.Vector3(0, 1, 0);
     function getSphereTransform(gx: number, gz: number, radiusOffset = 0) {
       const normal = new THREE.Vector3(gx * TILE_ANGLE, 1.0, gz * TILE_ANGLE).normalize();
@@ -995,157 +1041,55 @@ function EarthBase3DView({ onExitToSpace }: { onExitToSpace: () => void }) {
       return { normal, position, quaternion };
     }
 
-    function evaluateEarthElevation(nx: number, ny: number, nz: number) {
-      const angleFromPole = Math.acos(clamp(ny, -1, 1));
-
-      let cont = 0;
-      let amp = 0.5;
-      let freq = 1.65;
-      for (let i = 0; i < 5; i++) {
-        cont += noiseGen.noise3D(nx * freq + 1.3, ny * freq + 2.1, nz * freq + 0.7) * amp;
-        freq *= 2.05;
-        amp *= 0.5;
-      }
-
-      const r1 = 1.0 - Math.abs(noiseGen.noise3D(nx * 4.8 + 5.2, ny * 4.8, nz * 4.8 + 1.9));
-      const r2 = 1.0 - Math.abs(noiseGen.noise3D(nx * 9.5, ny * 9.5 + 3.4, nz * 9.5));
-      const mountainRidge = Math.pow(clamp(r1 * 0.7 + r2 * 0.3, 0, 1), 2.2);
-
-      const rawHeight = cont + (cont > 0.02 ? mountainRidge * 0.65 : 0);
-
-      if (angleFromPole < 0.22) {
-        return { height: 0.25, mountainRidge: 0, isVillageClearing: true };
-      } else if (angleFromPole < 0.34) {
-        const t = (angleFromPole - 0.22) / 0.12;
-        const smoothT = t * t * (3 - 2 * t);
-        const ringMountains = 0.28 + mountainRidge * 0.55 * Math.sin(t * Math.PI);
-        const blended = 0.25 * (1 - smoothT) + Math.max(rawHeight, ringMountains) * smoothT;
-        return { height: blended, mountainRidge, isVillageClearing: false };
-      }
-
-      return { height: rawHeight, mountainRidge, isVillageClearing: false };
-    }
-
-    const planetGeo = new THREE.IcosahedronGeometry(R_PLANET, 40);
-    const posAttr = planetGeo.attributes.position;
-    const colAttr = new THREE.BufferAttribute(new Float32Array(posAttr.count * 3), 3);
-    const vNorm = new THREE.Vector3();
-    const candidateForestSpots: { normal: THREE.Vector3; radius: number }[] = [];
-
-    for (let i = 0; i < posAttr.count; i++) {
-      vNorm.fromBufferAttribute(posAttr, i).normalize();
-      const { height, mountainRidge, isVillageClearing } = evaluateEarthElevation(
-        vNorm.x,
-        vNorm.y,
-        vNorm.z,
-      );
-      const lat = Math.abs(vNorm.y);
-      const moisture = noiseGen.noise3D(vNorm.x * 3.5, vNorm.y * 3.5, vNorm.z * 3.5) * 0.5 + 0.5;
-
-      let displacedRadius = R_PLANET;
-      let r = 0.2,
-        g = 0.5,
-        b = 0.2;
-
-      if (isVillageClearing) {
-        displacedRadius = R_VILLAGE - 0.08;
-        r = 0.29;
-        g = 0.58;
-        b = 0.16;
-      } else if (height < 0.0) {
-        const depth = clamp(-height * 1.6, 0, 1);
-        displacedRadius = R_PLANET - 0.25 - depth * 1.6;
-        r = 0.04 + (1 - depth) * 0.08;
-        g = 0.18 + (1 - depth) * 0.28;
-        b = 0.42 + (1 - depth) * 0.32;
-      } else {
-        const landH = height;
-        displacedRadius = R_PLANET + 0.15 + Math.pow(landH, 1.35) * 5.8;
-
-        if (lat > 0.84 - landH * 0.15) {
-          r = 0.94;
-          g = 0.97;
-          b = 1.0;
-        } else if (landH < 0.055) {
-          r = 0.88;
-          g = 0.79;
-          b = 0.52;
-        } else if (landH > 0.62 || (landH > 0.42 && mountainRidge > 0.58)) {
-          if (landH > 0.82) {
-            r = 0.96;
-            g = 0.98;
-            b = 1.0;
-          } else {
-            const rockShade = 0.42 + (landH - 0.42) * 0.35;
-            r = rockShade * 1.05;
-            g = rockShade * 0.98;
-            b = rockShade * 0.92;
-          }
-        } else if (moisture < 0.36 && lat < 0.45) {
-          r = 0.78;
-          g = 0.63;
-          b = 0.36;
-        } else {
-          const lush = clamp((moisture - 0.3) * 1.4, 0, 1);
-          r = 0.16 + (1 - lush) * 0.14;
-          g = 0.44 + lush * 0.18;
-          b = 0.14 + (1 - lush) * 0.06;
-
-          if (i % 19 === 0 && landH > 0.08 && landH < 0.46) {
-            candidateForestSpots.push({
-              normal: vNorm.clone(),
-              radius: displacedRadius,
-            });
-          }
-        }
-      }
-
-      posAttr.setXYZ(
-        i,
-        vNorm.x * displacedRadius,
-        vNorm.y * displacedRadius,
-        vNorm.z * displacedRadius,
-      );
-      colAttr.setXYZ(i, r, g, b);
-    }
-
-    planetGeo.setAttribute('color', colAttr);
-    planetGeo.computeVertexNormals();
-
-    const earthTerrainMesh = new THREE.Mesh(
-      planetGeo,
-      new THREE.MeshStandardMaterial({
-        vertexColors: true,
-        roughness: 0.82,
-        metalness: 0.04,
-      }),
-    );
+    const planetMaps = generatePlanetTextures(planetId);
+    const globeSegments = isMobile ? 64 : 96;
+    const globeGeo = new THREE.SphereGeometry(R_VILLAGE - 0.06, globeSegments, globeSegments);
+    const globeMat = new THREE.MeshPhongMaterial({
+      map: planetMaps.map,
+      bumpMap: planetMaps.bumpMap,
+      bumpScale: 0.35,
+      specularMap: planetMaps.specularMap ?? undefined,
+      specular: new THREE.Color(0x66aacc),
+      shininess: 38,
+    });
+    const earthTerrainMesh = new THREE.Mesh(globeGeo, globeMat);
     earthTerrainMesh.receiveShadow = true;
-    earthTerrainMesh.castShadow = true;
     scene.add(earthTerrainMesh);
 
-    const oceanSphere = new THREE.Mesh(
-      new THREE.SphereGeometry(R_PLANET, 96, 96),
-      new THREE.MeshPhongMaterial({
-        color: 0x0ea5e9,
-        emissive: 0x0369a1,
-        emissiveIntensity: 0.18,
-        specular: new THREE.Color(0xbae6fd),
-        shininess: 95,
+    // Smooth Natural Sanctuary Ground Pad at North Pole for Base & Characters
+    const clearingCapGeo = new THREE.CylinderGeometry(13.2, 14.4, 0.45, 64);
+    const clearingCapMat = new THREE.MeshStandardMaterial({
+      color: 0x2d6a3e,
+      roughness: 0.88,
+      metalness: 0.02,
+    });
+    const clearingCap = new THREE.Mesh(clearingCapGeo, clearingCapMat);
+    clearingCap.position.set(0, R_VILLAGE - 0.25, 0);
+    clearingCap.receiveShadow = true;
+    scene.add(clearingCap);
+
+    // Subtle stone sanctuary ring around clearing
+    const ringBorder = new THREE.Mesh(
+      new THREE.RingGeometry(13.0, 13.45, 64),
+      new THREE.MeshBasicMaterial({
+        color: 0x38bdf8,
+        side: THREE.DoubleSide,
         transparent: true,
-        opacity: 0.84,
+        opacity: 0.32,
       }),
     );
-    oceanSphere.receiveShadow = true;
-    scene.add(oceanSphere);
+    ringBorder.rotation.x = -Math.PI / 2;
+    ringBorder.position.set(0, R_VILLAGE + 0.01, 0);
+    scene.add(ringBorder);
 
+    // Smooth Rayleigh Scattering Atmosphere Halo
     const atmoMesh = new THREE.Mesh(
-      new THREE.SphereGeometry(R_PLANET * 1.13, 64, 64),
-      createAtmosphereMaterial(0x38bdf8, 0.85, 3.4),
+      new THREE.SphereGeometry(R_VILLAGE * 1.11, 64, 64),
+      createAtmosphereMaterial(0x38bdf8, 0.88, 3.2),
     );
     scene.add(atmoMesh);
 
-    /* ---------- 3. FOREST TREES & VILLAGE CHECKERED GRID ---------- */
+    /* ---------- 3. NATURAL TREES & ROCKS AROUND THE SANCTUARY ---------- */
     function createPineTree(scale = 1) {
       const group = new THREE.Group();
       const trunk = new THREE.Mesh(
@@ -1199,50 +1143,36 @@ function EarthBase3DView({ onExitToSpace }: { onExitToSpace: () => void }) {
       return rock;
     }
 
-    const maxGlobalTrees = Math.min(candidateForestSpots.length, 320);
-    for (let i = 0; i < maxGlobalTrees; i++) {
-      const spot = candidateForestSpots[i];
-      const scale = 0.75 + (i % 5) * 0.16;
-      const tree = i % 3 === 0 ? createOakTree(scale) : createPineTree(scale);
-      tree.position.copy(spot.normal).multiplyScalar(spot.radius - 0.05);
-      tree.quaternion.setFromUnitVectors(UP, spot.normal);
-      scene.add(tree);
-    }
-
-    for (let i = 0; i < 56; i++) {
-      const angle = (i / 56) * Math.PI * 2 + (Math.random() - 0.5) * 0.08;
-      const gridDist = 9.2 + Math.random() * 2.8;
+    for (let i = 0; i < 44; i++) {
+      const angle = (i / 44) * Math.PI * 2 + (Math.random() - 0.5) * 0.08;
+      const gridDist = 9.4 + Math.random() * 2.8;
       const gx = Math.cos(angle) * gridDist;
       const gz = Math.sin(angle) * gridDist;
-      const { normal } = getSphereTransform(gx, gz);
-      const { height } = evaluateEarthElevation(normal.x, normal.y, normal.z);
-      const rSurface = R_PLANET + 0.15 + Math.pow(Math.max(0.1, height), 1.35) * 5.8;
+      const { position, quaternion } = getSphereTransform(gx, gz, -0.04);
 
       const s = 0.85 + Math.random() * 0.45;
       const tree = i % 3 === 0 ? createOakTree(s) : createPineTree(s);
-      tree.position.copy(normal).multiplyScalar(rSurface - 0.06);
-      tree.quaternion.setFromUnitVectors(UP, normal);
+      tree.position.copy(position);
+      tree.quaternion.copy(quaternion);
       scene.add(tree);
     }
 
-    const gridGroup = new THREE.Group();
-    const tileGeo = new THREE.BoxGeometry(TILE_WORLD * 0.96, 0.16, TILE_WORLD * 0.96);
-    const lightGrassMat = new THREE.MeshStandardMaterial({ color: 0x68c138, roughness: 0.85 });
-    const darkGrassMat = new THREE.MeshStandardMaterial({ color: 0x5cb230, roughness: 0.85 });
-
-    const halfGrid = GRID_TILES / 2;
-    for (let gx = -halfGrid; gx < halfGrid; gx++) {
-      for (let gz = -halfGrid; gz < halfGrid; gz++) {
-        const isLight = (gx + gz) % 2 === 0;
-        const tile = new THREE.Mesh(tileGeo, isLight ? lightGrassMat : darkGrassMat);
-        const { position, quaternion } = getSphereTransform(gx + 0.5, gz + 0.5, -0.04);
-        tile.position.copy(position);
-        tile.quaternion.copy(quaternion);
-        tile.receiveShadow = true;
-        gridGroup.add(tile);
-      }
-    }
-    scene.add(gridGroup);
+    // Optional Custom Planet GLB Model Slot (/models/<planetId>.glb) for user-created 3D models
+    const customModelLoader = new GLTFLoader();
+    customModelLoader.load(
+      `/models/${planetId}.glb`,
+      (gltf) => {
+        const customModel = gltf.scene;
+        const { position, quaternion } = getSphereTransform(0, -4, 0.05);
+        customModel.position.copy(position);
+        customModel.quaternion.copy(quaternion);
+        scene.add(customModel);
+      },
+      undefined,
+      () => {
+        // Silently skip if user hasn't uploaded /models/<planetId>.glb yet
+      },
+    );
 
     /* ---------- 4. STARTER BUILDINGS ON THE SPHERE ---------- */
     const clickableMeshes: THREE.Object3D[] = [];
@@ -1522,30 +1452,19 @@ function EarthBase3DView({ onExitToSpace }: { onExitToSpace: () => void }) {
       kelly: { gx: -2.6, gz: 4.2, heading: 0.4, jumpHeight: 0, verticalVel: 0, walkCycle: 0 },
     };
 
-    /* ---------- 6. DRIFTING CLOUDS & SELECTION HIGHLIGHT ---------- */
+    /* ---------- 6. REALISTIC WISPY ATMOSPHERIC CLOUD SPHERE (NO BLOCKY PUFFS) ---------- */
     const cloudsOrbitGroup = new THREE.Group();
-    const cloudMat = new THREE.MeshLambertMaterial({
-      color: 0xffffff,
-      transparent: true,
-      opacity: 0.58,
-    });
-    for (let i = 0; i < 36; i++) {
-      const phi = 0.38 + Math.random() * (Math.PI - 0.55);
-      const theta = Math.random() * Math.PI * 2;
-      const cNorm = new THREE.Vector3(
-        Math.sin(phi) * Math.cos(theta),
-        Math.cos(phi),
-        Math.sin(phi) * Math.sin(theta),
-      );
-      const puff = new THREE.Mesh(
-        new THREE.DodecahedronGeometry(2.6 + Math.random() * 2.8, 1),
-        cloudMat,
-      );
-      puff.position.copy(cNorm).multiplyScalar(R_PLANET + 7.2 + Math.random() * 2.5);
-      puff.quaternion.setFromUnitVectors(UP, cNorm);
-      puff.scale.set(1.8, 0.36, 1.2);
-      cloudsOrbitGroup.add(puff);
-    }
+    const wispyCloudTex = generateEarthCloudsTexture(planetId);
+    const wispyCloudSphere = new THREE.Mesh(
+      new THREE.SphereGeometry(R_VILLAGE * 1.045, 64, 64),
+      new THREE.MeshLambertMaterial({
+        map: wispyCloudTex,
+        transparent: true,
+        opacity: 0.65,
+        depthWrite: false,
+      }),
+    );
+    cloudsOrbitGroup.add(wispyCloudSphere);
     scene.add(cloudsOrbitGroup);
 
     const selectionHighlight = new THREE.Mesh(
@@ -1705,27 +1624,29 @@ function EarthBase3DView({ onExitToSpace }: { onExitToSpace: () => void }) {
 
       if (e.code === 'Escape') {
         onExitToSpace();
-      } else if (e.code === 'Space') {
-        triggerJump();
-      } else if (e.code === 'KeyC') {
-        setPostureState('sit');
-      } else if (e.code === 'KeyZ') {
-        setPostureState('sleep');
-      } else if (e.code === 'KeyF') {
-        activateSkill();
-      } else if (e.code === 'KeyB') {
-        triggerEmote();
-      } else if (e.code === 'Tab') {
-        switchCharacter(activeCharRef.current === 'alok' ? 'kelly' : 'alok');
-      } else if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') {
-        isSprintingRef.current = !isSprintingRef.current;
-        setIsSprinting(isSprintingRef.current);
       } else if (e.code === 'Digit1') {
         setCamPreset('character');
       } else if (e.code === 'Digit2') {
         setCamPreset('village');
       } else if (e.code === 'Digit3') {
         setCamPreset('globe');
+      } else if (isOwner) {
+        if (e.code === 'Space') {
+          triggerJump();
+        } else if (e.code === 'KeyC') {
+          setPostureState('sit');
+        } else if (e.code === 'KeyZ') {
+          setPostureState('sleep');
+        } else if (e.code === 'KeyF') {
+          activateSkill();
+        } else if (e.code === 'KeyB') {
+          triggerEmote();
+        } else if (e.code === 'Tab') {
+          switchCharacter(activeCharRef.current === 'alok' ? 'kelly' : 'alok');
+        } else if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') {
+          isSprintingRef.current = !isSprintingRef.current;
+          setIsSprinting(isSprintingRef.current);
+        }
       }
     }
 
@@ -1768,13 +1689,15 @@ function EarthBase3DView({ onExitToSpace }: { onExitToSpace: () => void }) {
       ).position;
 
       /* --- A. Compute Movement Input (Virtual Joystick + WASD/Arrows) --- */
-      let moveX = joystickVectorRef.current.x;
-      let moveY = joystickVectorRef.current.y;
+      let moveX = isOwner ? joystickVectorRef.current.x : 0;
+      let moveY = isOwner ? joystickVectorRef.current.y : 0;
 
-      if (keyMap['KeyW'] || keyMap['ArrowUp']) moveY -= 1;
-      if (keyMap['KeyS'] || keyMap['ArrowDown']) moveY += 1;
-      if (keyMap['KeyA'] || keyMap['ArrowLeft']) moveX -= 1;
-      if (keyMap['KeyD'] || keyMap['ArrowRight']) moveX += 1;
+      if (isOwner) {
+        if (keyMap['KeyW'] || keyMap['ArrowUp']) moveY -= 1;
+        if (keyMap['KeyS'] || keyMap['ArrowDown']) moveY += 1;
+        if (keyMap['KeyA'] || keyMap['ArrowLeft']) moveX -= 1;
+        if (keyMap['KeyD'] || keyMap['ArrowRight']) moveX += 1;
+      }
 
       const inputMag = Math.min(1, Math.hypot(moveX, moveY));
       const isMoving = inputMag > 0.08;
@@ -2147,7 +2070,7 @@ function EarthBase3DView({ onExitToSpace }: { onExitToSpace: () => void }) {
       controls.dispose();
       renderer.dispose();
     };
-  }, [onExitToSpace]);
+  }, [onExitToSpace, planetId, isOwner]);
 
   // Passive EP/HP regeneration when sleeping or using DJ Alok's skill
   useEffect(() => {
@@ -2164,9 +2087,9 @@ function EarthBase3DView({ onExitToSpace }: { onExitToSpace: () => void }) {
 
   return (
     <div
-      className="relative h-screen w-screen overflow-hidden select-none bg-[#030712]"
+      className="relative h-screen w-screen overflow-hidden select-none bg-[#030712] touch-none"
       onPointerMove={(e) => {
-        if (joyDraggingRef.current) updateJoystickFromEvent(e.clientX, e.clientY);
+        if (isOwner && joyDraggingRef.current) updateJoystickFromEvent(e.clientX, e.clientY);
       }}
       onPointerUp={() => {
         if (joyDraggingRef.current) {
@@ -2180,161 +2103,168 @@ function EarthBase3DView({ onExitToSpace }: { onExitToSpace: () => void }) {
 
       {enteringAtmosphere && (
         <div className="fixed inset-0 z-30 pointer-events-none flex items-center justify-center bg-sky-500/15 backdrop-blur-[2px] transition-opacity duration-500">
-          <div className="glass-panel px-6 py-3 rounded-2xl flex items-center gap-3 border-sky-300/60">
+          <div className="glass-panel px-5 py-3 rounded-2xl flex items-center gap-3 border-sky-300/60">
             <Compass className="w-5 h-5 text-sky-300 animate-spin" />
-            <span className="font-display text-sm sm:text-base font-bold tracking-widest uppercase text-white">
-              Deploying Free Fire Heroes // Spherical Earth Outpost...
+            <span className="font-display text-xs sm:text-base font-bold tracking-widest uppercase text-white">
+              Entering {planetName} Outpost // {isOwner ? 'Sovereign Control' : 'Spectator Mode'}
             </span>
           </div>
         </div>
       )}
 
       {/* ==================== TOP HEADER HUD ==================== */}
-      <header className="fixed top-0 left-0 right-0 z-20 p-3 sm:p-4 pointer-events-none flex flex-wrap items-center justify-between gap-2">
+      <header className="fixed top-0 left-0 right-0 z-20 p-2.5 sm:p-4 pointer-events-none flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-2 pointer-events-auto">
-          {/* Active Free Fire Character Badge */}
-          <div className="glass-panel rounded-2xl px-3.5 py-2 flex items-center gap-3 border-amber-400/50">
+          {/* Planet & Ownership Status Badge */}
+          <div className="glass-panel rounded-2xl px-3 py-1.5 flex items-center gap-2.5 border-amber-400/50">
             <div
-              className="w-9 h-9 rounded-xl flex items-center justify-center font-display font-bold text-slate-950 shadow-lg"
-              style={{ backgroundColor: currentSpec.accentColor }}
+              className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center font-display font-bold text-slate-950 shadow-lg"
+              style={{ backgroundColor: isOwner ? currentSpec.accentColor : '#64748b' }}
             >
-              {activeChar === 'alok' ? <Music className="w-5 h-5" /> : <Zap className="w-5 h-5" />}
+              {isOwner ? (
+                activeChar === 'alok' ? <Music className="w-4 h-4 sm:w-5 sm:h-5" /> : <Zap className="w-4 h-4 sm:w-5 sm:h-5" />
+              ) : (
+                <Eye className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
+              )}
             </div>
             <div>
-              <div className="font-display font-bold text-sm text-white leading-tight flex items-center gap-2">
-                <span>{currentSpec.name}</span>
-                <span className="text-[10px] font-mono-tech uppercase px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-400/40">
-                  {posture.toUpperCase()}
-                </span>
+              <div className="font-display font-bold text-xs sm:text-sm text-white leading-tight flex items-center gap-1.5">
+                <span>{planetName}</span>
+                {isOwner ? (
+                  <span className="text-[9px] font-mono-tech uppercase px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-400/40 flex items-center gap-1">
+                    <Crown className="w-2.5 h-2.5" /> Sovereign
+                  </span>
+                ) : (
+                  <span className="text-[9px] font-mono-tech uppercase px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-400/40 flex items-center gap-1">
+                    <Lock className="w-2.5 h-2.5" /> View Only
+                  </span>
+                )}
               </div>
-              <div className="text-[11px] font-mono-tech text-slate-300">
-                {currentSpec.title} // <span className="text-emerald-300">1/1 Builders</span>
+              <div className="text-[10px] font-mono-tech text-slate-300">
+                {isOwner
+                  ? `${currentSpec.name} // ${posture.toUpperCase()}`
+                  : `Ruler: ${ownerName} (Spectator Mode)`}
               </div>
             </div>
           </div>
 
           {/* Camera Mode Switcher: 3rd-Person Character vs Village vs Full Globe */}
-          <div className="glass-panel rounded-2xl p-1.5 flex items-center gap-1">
+          <div className="glass-panel rounded-2xl p-1 flex items-center gap-1">
             <button
               onClick={() => actionsBridgeRef.current?.setCamPreset('character')}
-              className={`glass-pill px-2.5 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 ${
+              className={`glass-pill px-2 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1 ${
                 cameraMode === 'character' ? 'active-amber text-white' : 'text-slate-300'
               }`}
             >
               <User className="w-3.5 h-3.5 text-amber-300" />
-              <span>Hero Cam</span>
-              <span className="kbd-badge">1</span>
+              <span className="hidden xs:inline">Hero</span>
             </button>
             <button
               onClick={() => actionsBridgeRef.current?.setCamPreset('village')}
-              className={`glass-pill px-2.5 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 ${
+              className={`glass-pill px-2 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1 ${
                 cameraMode === 'village' ? 'active text-white' : 'text-slate-300'
               }`}
             >
               <MapPin className="w-3.5 h-3.5 text-emerald-300" />
-              <span>Village</span>
-              <span className="kbd-badge">2</span>
+              <span className="hidden xs:inline">Outpost</span>
             </button>
             <button
               onClick={() => actionsBridgeRef.current?.setCamPreset('globe')}
-              className={`glass-pill px-2.5 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 ${
+              className={`glass-pill px-2 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1 ${
                 cameraMode === 'globe' ? 'active text-white' : 'text-slate-300'
               }`}
             >
               <Globe2 className="w-3.5 h-3.5 text-sky-300" />
-              <span>Full Globe</span>
-              <span className="kbd-badge">3</span>
+              <span className="hidden xs:inline">Globe</span>
             </button>
           </div>
 
           <button
             onClick={onExitToSpace}
-            className="glass-pill px-3 py-2 rounded-2xl text-xs font-semibold text-white flex items-center gap-1.5 shadow-lg hover:border-amber-400/60"
+            className="glass-pill px-3 py-1.5 rounded-2xl text-xs font-semibold text-white flex items-center gap-1.5 shadow-lg hover:border-amber-400/60"
           >
-            <Rocket className="w-4 h-4 text-amber-300" />
-            <span className="hidden sm:inline">Solar System</span>
-            <span className="kbd-badge">Esc</span>
+            <Rocket className="w-3.5 h-3.5 text-amber-300" />
+            <span>Orbit</span>
           </button>
         </div>
 
-        {/* Right: Character Switcher Cards (DJ Alok & Kelly) + Village Resources */}
-        <div className="flex flex-wrap items-center gap-2 pointer-events-auto">
-          <div className="glass-panel rounded-2xl p-1.5 flex items-center gap-1.5">
-            <button
-              onClick={() => actionsBridgeRef.current?.switchCharacter('alok')}
-              className={`glass-pill px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-2 ${
-                activeChar === 'alok' ? 'active-amber text-white' : 'text-slate-300'
-              }`}
-            >
-              <Music className="w-3.5 h-3.5 text-amber-300" />
-              <span>DJ Alok</span>
-            </button>
-            <button
-              onClick={() => actionsBridgeRef.current?.switchCharacter('kelly')}
-              className={`glass-pill px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-2 ${
-                activeChar === 'kelly' ? 'active-amber text-white' : 'text-slate-300'
-              }`}
-            >
-              <Zap className="w-3.5 h-3.5 text-yellow-300" />
-              <span>Kelly</span>
-            </button>
-            <span className="kbd-badge mr-1" title="Press Tab to Switch Character">
-              Tab
-            </span>
-          </div>
+        {/* Right: Character Switcher Cards (Only enabled for Owner) + Village Resources */}
+        {isOwner && (
+          <div className="flex flex-wrap items-center gap-2 pointer-events-auto">
+            <div className="glass-panel rounded-2xl p-1 flex items-center gap-1">
+              <button
+                onClick={() => actionsBridgeRef.current?.switchCharacter('alok')}
+                className={`glass-pill px-2.5 py-1 rounded-xl text-xs font-bold flex items-center gap-1.5 ${
+                  activeChar === 'alok' ? 'active-amber text-white' : 'text-slate-300'
+                }`}
+              >
+                <Music className="w-3.5 h-3.5 text-amber-300" />
+                <span>Alok</span>
+              </button>
+              <button
+                onClick={() => actionsBridgeRef.current?.switchCharacter('kelly')}
+                className={`glass-pill px-2.5 py-1 rounded-xl text-xs font-bold flex items-center gap-1.5 ${
+                  activeChar === 'kelly' ? 'active-amber text-white' : 'text-slate-300'
+                }`}
+              >
+                <Zap className="w-3.5 h-3.5 text-yellow-300" />
+                <span>Kelly</span>
+              </button>
+            </div>
 
-          <div className="hidden lg:flex items-center gap-1.5">
-            <div className="glass-panel rounded-2xl px-3 py-1.5 flex items-center gap-2 border-amber-400/40">
-              <Coins className="w-3.5 h-3.5 text-amber-400" />
-              <span className="font-display font-bold text-xs text-amber-300">1,500</span>
-            </div>
-            <div className="glass-panel rounded-2xl px-3 py-1.5 flex items-center gap-2 border-fuchsia-400/40">
-              <Droplets className="w-3.5 h-3.5 text-fuchsia-400" />
-              <span className="font-display font-bold text-xs text-fuchsia-300">1,500</span>
-            </div>
-            <div className="glass-panel rounded-2xl px-3 py-1.5 flex items-center gap-2 border-emerald-400/40">
-              <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
-              <span className="font-display font-bold text-xs text-emerald-300">250</span>
+            <div className="hidden lg:flex items-center gap-1.5">
+              <div className="glass-panel rounded-2xl px-3 py-1.5 flex items-center gap-2 border-amber-400/40">
+                <Coins className="w-3.5 h-3.5 text-amber-400" />
+                <span className="font-display font-bold text-xs text-amber-300">1,500</span>
+              </div>
+              <div className="glass-panel rounded-2xl px-3 py-1.5 flex items-center gap-2 border-fuchsia-400/40">
+                <Droplets className="w-3.5 h-3.5 text-fuchsia-400" />
+                <span className="font-display font-bold text-xs text-fuchsia-300">1,500</span>
+              </div>
+              <div className="glass-panel rounded-2xl px-3 py-1.5 flex items-center gap-2 border-emerald-400/40">
+                <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+                <span className="font-display font-bold text-xs text-emerald-300">250</span>
+              </div>
             </div>
           </div>
-        </div>
+        )}
       </header>
 
-      {/* ==================== BOTTOM-LEFT: FREE FIRE VIRTUAL ANALOG JOYSTICK ==================== */}
-      <div className="fixed bottom-16 left-6 sm:left-10 z-20 flex flex-col items-center gap-2 pointer-events-auto">
-        <div
-          ref={joyBaseRef}
-          onPointerDown={(e) => {
-            e.stopPropagation();
-            joyDraggingRef.current = true;
-            updateJoystickFromEvent(e.clientX, e.clientY);
-          }}
-          className="relative w-32 h-32 sm:w-36 sm:h-36 rounded-full bg-slate-950/65 border-2 border-sky-400/40 backdrop-blur-md flex items-center justify-center shadow-[0_0_30px_rgba(0,0,0,0.75)] cursor-grab active:cursor-grabbing"
-        >
-          {/* Outer Compass Ring Markings */}
-          <div className="absolute inset-2 rounded-full border border-dashed border-slate-600/60 pointer-events-none" />
-          <span className="absolute top-2 text-[9px] font-mono-tech text-sky-400/70">W</span>
-          <span className="absolute bottom-2 text-[9px] font-mono-tech text-sky-400/70">S</span>
-          <span className="absolute left-2.5 text-[9px] font-mono-tech text-sky-400/70">A</span>
-          <span className="absolute right-2.5 text-[9px] font-mono-tech text-sky-400/70">D</span>
-
-          {/* Draggable Thumbstick Knob */}
+      {/* ==================== BOTTOM-LEFT: FREE FIRE VIRTUAL ANALOG JOYSTICK (OWNER ONLY) ==================== */}
+      {isOwner && (
+        <div className="fixed bottom-16 left-4 sm:left-8 z-20 flex flex-col items-center gap-1.5 pointer-events-auto">
           <div
-            style={{
-              transform: `translate(${joyKnob.x}px, ${joyKnob.y}px)`,
+            ref={joyBaseRef}
+            onPointerDown={(e) => {
+              e.stopPropagation();
+              joyDraggingRef.current = true;
+              updateJoystickFromEvent(e.clientX, e.clientY);
             }}
-            className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-gradient-to-br from-amber-400 via-orange-500 to-amber-600 border-2 border-white/90 shadow-[0_0_20px_rgba(245,158,11,0.85)] flex items-center justify-center pointer-events-none transition-transform duration-75"
+            className="relative w-28 h-28 sm:w-32 sm:h-32 rounded-full bg-slate-950/65 border-2 border-sky-400/40 backdrop-blur-md flex items-center justify-center shadow-[0_0_30px_rgba(0,0,0,0.75)] cursor-grab active:cursor-grabbing"
           >
-            <div className="w-4 h-4 rounded-full bg-white/80" />
-          </div>
-        </div>
-        <span className="text-[10px] font-mono-tech uppercase tracking-wider text-slate-400 bg-slate-950/80 px-2.5 py-0.5 rounded-full border border-slate-800">
-          Joystick / WASD
-        </span>
-      </div>
+            <div className="absolute inset-2 rounded-full border border-dashed border-slate-600/60 pointer-events-none" />
+            <span className="absolute top-1.5 text-[9px] font-mono-tech text-sky-400/70">W</span>
+            <span className="absolute bottom-1.5 text-[9px] font-mono-tech text-sky-400/70">S</span>
+            <span className="absolute left-2 text-[9px] font-mono-tech text-sky-400/70">A</span>
+            <span className="absolute right-2 text-[9px] font-mono-tech text-sky-400/70">D</span>
 
-      {/* ==================== BOTTOM-CENTER: FREE FIRE HP / EP BAR & BUILDING INSPECTOR ==================== */}
-      <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-20 w-[calc(100vw-2rem)] max-w-md pointer-events-auto flex flex-col gap-2">
+            <div
+              style={{
+                transform: `translate(${joyKnob.x}px, ${joyKnob.y}px)`,
+              }}
+              className="w-11 h-11 sm:w-12 sm:h-12 rounded-full bg-gradient-to-br from-amber-400 via-orange-500 to-amber-600 border-2 border-white/90 shadow-[0_0_20px_rgba(245,158,11,0.85)] flex items-center justify-center pointer-events-none transition-transform duration-75"
+            >
+              <div className="w-3.5 h-3.5 rounded-full bg-white/80" />
+            </div>
+          </div>
+          <span className="text-[9px] font-mono-tech uppercase tracking-wider text-slate-400 bg-slate-950/80 px-2 py-0.5 rounded-full border border-slate-800">
+            Move / WASD
+          </span>
+        </div>
+      )}
+
+      {/* ==================== BOTTOM-CENTER: HP / EP BAR & BUILDING INSPECTOR ==================== */}
+      <div className="fixed bottom-3 left-1/2 -translate-x-1/2 z-20 w-[calc(100vw-2rem)] max-w-md pointer-events-auto flex flex-col gap-2">
         {selectedEntity && (
           <div className="glass-panel rounded-2xl p-3 flex items-center justify-between gap-3 border-emerald-400/40">
             <div>
@@ -2360,133 +2290,132 @@ function EarthBase3DView({ onExitToSpace }: { onExitToSpace: () => void }) {
           </div>
         )}
 
-        {/* Authentic Free Fire EP (Yellow) + HP (White/Green) Status Bar */}
-        <div className="glass-panel rounded-2xl px-4 py-2.5 border-slate-700/80">
-          <div className="flex items-center justify-between text-[10px] font-mono-tech mb-1">
-            <span className="text-amber-300 flex items-center gap-1 font-semibold">
-              <Zap className="w-3 h-3" /> EP {ep}/200
-            </span>
-            <span className="text-slate-300 uppercase tracking-wider">
-              {skillActive ? `🔥 ${currentSpec.skillName.toUpperCase()} ACTIVE!` : currentSpec.skillName}
-            </span>
-            <span className="text-emerald-300 flex items-center gap-1 font-bold">
-              <Heart className="w-3 h-3 fill-emerald-400" /> HP {hp}/200
-            </span>
+        {isOwner ? (
+          <div className="glass-panel rounded-2xl px-4 py-2 border-slate-700/80 hidden sm:block">
+            <div className="flex items-center justify-between text-[10px] font-mono-tech mb-1">
+              <span className="text-amber-300 flex items-center gap-1 font-semibold">
+                <Zap className="w-3 h-3" /> EP {ep}/200
+              </span>
+              <span className="text-slate-300 uppercase tracking-wider">
+                {skillActive ? `${currentSpec.skillName.toUpperCase()} ACTIVE` : currentSpec.skillName}
+              </span>
+              <span className="text-emerald-300 flex items-center gap-1 font-bold">
+                <Heart className="w-3 h-3 fill-emerald-400" /> HP {hp}/200
+              </span>
+            </div>
+            <div className="w-full h-1.5 bg-slate-900 rounded-full overflow-hidden mb-1">
+              <div
+                className="h-full bg-gradient-to-r from-amber-400 to-yellow-300 transition-all duration-300"
+                style={{ width: `${(ep / 200) * 100}%` }}
+              />
+            </div>
+            <div className="w-full h-2 bg-slate-900 rounded-full overflow-hidden border border-slate-700/80">
+              <div
+                className="h-full bg-gradient-to-r from-emerald-500 via-emerald-400 to-white transition-all duration-300"
+                style={{ width: `${(hp / 200) * 100}%` }}
+              />
+            </div>
           </div>
-
-          {/* EP Bar */}
-          <div className="w-full h-1.5 bg-slate-900 rounded-full overflow-hidden mb-1.5">
-            <div
-              className="h-full bg-gradient-to-r from-amber-400 to-yellow-300 transition-all duration-300"
-              style={{ width: `${(ep / 200) * 100}%` }}
-            />
+        ) : (
+          <div className="glass-panel rounded-2xl px-4 py-2.5 border-rose-500/40 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-xs text-slate-200">
+              <Lock className="w-4 h-4 text-rose-400 shrink-0" />
+              <span>
+                <strong>{planetName}</strong> belongs to <strong>{ownerName}</strong>. You are visiting in Spectator Mode.
+              </span>
+            </div>
           </div>
-
-          {/* HP Bar */}
-          <div className="w-full h-2.5 bg-slate-900 rounded-full overflow-hidden border border-slate-700/80">
-            <div
-              className="h-full bg-gradient-to-r from-emerald-500 via-emerald-400 to-white transition-all duration-300"
-              style={{ width: `${(hp / 200) * 100}%` }}
-            />
-          </div>
-        </div>
+        )}
       </div>
 
-      {/* ==================== BOTTOM-RIGHT: FREE FIRE ACTION & POSTURE CLUSTER ==================== */}
-      <div className="fixed bottom-6 right-5 sm:right-8 z-20 flex flex-col items-end gap-2.5 pointer-events-auto">
-        {/* Top Row: Sprint Lock & Booyah Emote */}
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => actionsBridgeRef.current?.triggerEmote()}
-            className={`w-12 h-12 rounded-2xl glass-pill flex flex-col items-center justify-center gap-0.5 ${
-              isEmoting ? 'active-amber text-white' : 'text-slate-200'
-            }`}
-            title="Booyah Dance Emote [B]"
-          >
-            <Smile className="w-4 h-4 text-pink-400" />
-            <span className="text-[9px] font-mono-tech">Emote [B]</span>
-          </button>
+      {/* ==================== BOTTOM-RIGHT: ACTION & POSTURE CLUSTER (OWNER ONLY) ==================== */}
+      {isOwner && (
+        <div className="fixed bottom-16 sm:bottom-6 right-4 sm:right-8 z-20 flex flex-col items-end gap-2 pointer-events-auto">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => actionsBridgeRef.current?.triggerEmote()}
+              className={`w-11 h-11 rounded-2xl glass-pill flex flex-col items-center justify-center gap-0.5 ${
+                isEmoting ? 'active-amber text-white' : 'text-slate-200'
+              }`}
+              title="Booyah Dance Emote [B]"
+            >
+              <Smile className="w-4 h-4 text-pink-400" />
+              <span className="text-[8px] font-mono-tech">Emote</span>
+            </button>
 
-          <button
-            onClick={() => {
-              isSprintingRef.current = !isSprintingRef.current;
-              setIsSprinting(isSprintingRef.current);
-              if (isSprintingRef.current && postureRef.current !== 'stand') {
-                postureRef.current = 'stand';
-                setPosture('stand');
-              }
-            }}
-            className={`w-14 h-12 rounded-2xl glass-pill flex flex-col items-center justify-center gap-0.5 ${
-              isSprinting ? 'active-amber text-white' : 'text-slate-200'
-            }`}
-            title="Toggle Sprint [Shift]"
-          >
-            <Footprints className="w-4 h-4 text-amber-300" />
-            <span className="text-[9px] font-mono-tech">Sprint</span>
-          </button>
+            <button
+              onClick={() => {
+                isSprintingRef.current = !isSprintingRef.current;
+                setIsSprinting(isSprintingRef.current);
+                if (isSprintingRef.current && postureRef.current !== 'stand') {
+                  postureRef.current = 'stand';
+                  setPosture('stand');
+                }
+              }}
+              className={`w-12 h-11 rounded-2xl glass-pill flex flex-col items-center justify-center gap-0.5 ${
+                isSprinting ? 'active-amber text-white' : 'text-slate-200'
+              }`}
+              title="Toggle Sprint [Shift]"
+            >
+              <Footprints className="w-4 h-4 text-amber-300" />
+              <span className="text-[8px] font-mono-tech">Sprint</span>
+            </button>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => actionsBridgeRef.current?.activateSkill()}
+              className={`w-13 h-13 sm:w-15 sm:h-15 rounded-full flex flex-col items-center justify-center border-2 transition-all shadow-lg ${
+                skillActive
+                  ? 'bg-gradient-to-br from-amber-400 via-fuchsia-500 to-indigo-600 border-white scale-105 shadow-[0_0_30px_rgba(245,158,11,0.9)]'
+                  : 'bg-slate-900/85 border-amber-400/70 hover:border-amber-300'
+              }`}
+              title={`${currentSpec.skillName}: ${currentSpec.skillDesc} [F]`}
+            >
+              {activeChar === 'alok' ? (
+                <Music className="w-5 h-5 text-amber-300" />
+              ) : (
+                <Zap className="w-5 h-5 text-yellow-300" />
+              )}
+              <span className="text-[8px] font-mono-tech font-bold text-white mt-0.5">SKILL</span>
+            </button>
+
+            <button
+              onClick={() => actionsBridgeRef.current?.setPostureState('sit')}
+              className={`w-12 h-12 rounded-full glass-pill flex flex-col items-center justify-center border-2 ${
+                posture === 'sit'
+                  ? 'active border-sky-400 text-white scale-105'
+                  : 'border-slate-600/70 text-slate-200'
+              }`}
+              title="Sit / Crouch [C]"
+            >
+              <span className="text-[10px] font-display font-bold">SIT</span>
+            </button>
+
+            <button
+              onClick={() => actionsBridgeRef.current?.setPostureState('sleep')}
+              className={`w-12 h-12 rounded-full glass-pill flex flex-col items-center justify-center border-2 ${
+                posture === 'sleep'
+                  ? 'active border-indigo-400 text-white scale-105'
+                  : 'border-slate-600/70 text-slate-200'
+              }`}
+              title="Sleep / Lie Prone [Z]"
+            >
+              <Moon className="w-3.5 h-3.5 text-indigo-300" />
+              <span className="text-[8px] font-mono-tech text-indigo-200">SLEEP</span>
+            </button>
+
+            <button
+              onClick={() => actionsBridgeRef.current?.triggerJump()}
+              className="w-13 h-13 sm:w-15 sm:h-15 rounded-full bg-gradient-to-br from-sky-400 to-blue-600 border-2 border-white/80 shadow-[0_0_22px_rgba(56,189,248,0.65)] active:scale-95 flex flex-col items-center justify-center text-white transition-transform"
+              title="Jump [Space]"
+            >
+              <ArrowUp className="w-5 h-5 stroke-[2.5]" />
+              <span className="text-[8px] font-mono-tech font-bold">JUMP</span>
+            </button>
+          </div>
         </div>
-
-        {/* Main Cluster: Active Skill + Jump + Sit/Crouch + Sleep/Prone */}
-        <div className="flex items-center gap-2.5">
-          {/* Active Character Skill Button ("Drop the Beat" / "Deadly Velocity") */}
-          <button
-            onClick={() => actionsBridgeRef.current?.activateSkill()}
-            className={`w-16 h-16 rounded-full flex flex-col items-center justify-center border-2 transition-all shadow-lg ${
-              skillActive
-                ? 'bg-gradient-to-br from-amber-400 via-fuchsia-500 to-indigo-600 border-white scale-105 shadow-[0_0_30px_rgba(245,158,11,0.9)]'
-                : 'bg-slate-900/85 border-amber-400/70 hover:border-amber-300 hover:scale-105'
-            }`}
-            title={`${currentSpec.skillName}: ${currentSpec.skillDesc} [F]`}
-          >
-            {activeChar === 'alok' ? (
-              <Music className="w-6 h-6 text-amber-300" />
-            ) : (
-              <Zap className="w-6 h-6 text-yellow-300" />
-            )}
-            <span className="text-[9px] font-mono-tech font-bold text-white mt-0.5">
-              SKILL [F]
-            </span>
-          </button>
-
-          {/* Sit / Crouch Button */}
-          <button
-            onClick={() => actionsBridgeRef.current?.setPostureState('sit')}
-            className={`w-14 h-14 rounded-full glass-pill flex flex-col items-center justify-center border-2 ${
-              posture === 'sit'
-                ? 'active border-sky-400 text-white scale-105'
-                : 'border-slate-600/70 text-slate-200'
-            }`}
-            title="Sit / Crouch [C]"
-          >
-            <span className="text-xs font-display font-bold">SIT</span>
-            <span className="text-[9px] font-mono-tech text-sky-300">[C]</span>
-          </button>
-
-          {/* Sleep / Prone Button */}
-          <button
-            onClick={() => actionsBridgeRef.current?.setPostureState('sleep')}
-            className={`w-14 h-14 rounded-full glass-pill flex flex-col items-center justify-center border-2 ${
-              posture === 'sleep'
-                ? 'active border-indigo-400 text-white scale-105'
-                : 'border-slate-600/70 text-slate-200'
-            }`}
-            title="Sleep / Lie Prone [Z]"
-          >
-            <Moon className="w-4 h-4 text-indigo-300" />
-            <span className="text-[9px] font-mono-tech text-indigo-200">SLEEP [Z]</span>
-          </button>
-
-          {/* Jump Button */}
-          <button
-            onClick={() => actionsBridgeRef.current?.triggerJump()}
-            className="w-16 h-16 rounded-full bg-gradient-to-br from-sky-400 to-blue-600 border-2 border-white/80 shadow-[0_0_22px_rgba(56,189,248,0.65)] hover:scale-105 active:scale-95 flex flex-col items-center justify-center text-white transition-transform"
-            title="Jump [Space]"
-          >
-            <ArrowUp className="w-6 h-6 stroke-[2.5]" />
-            <span className="text-[9px] font-mono-tech font-bold">JUMP</span>
-          </button>
-        </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -2524,9 +2453,9 @@ const CELESTIAL_DATA: CelestialBodyData[] = [
   {
     id: 'sun',
     keybind: '0',
-    name: 'The Sun',
+    name: 'Helios Prime',
     order: 'STAR // 00',
-    classification: 'G2V Yellow Dwarf Star',
+    classification: 'G2V Sovereign Star',
     radius: 13.5,
     distance: 0,
     orbitalSpeed: 0,
@@ -2538,212 +2467,212 @@ const CELESTIAL_DATA: CelestialBodyData[] = [
     distanceText: '0.00 AU (Center)',
     orbitText: '230M Yrs (Galactic)',
     tempText: '5,500°C (Photosphere)',
-    moonsText: '8 Planets + Magnetic Loops',
+    moonsText: '8 Sovereign Earth Realms',
     rotationText: '25.4 Days / 7.25°',
     gravity: 'Gravity: 274 m/s²',
     atmosphere: '73% Hydrogen, 25% Helium, active magnetic plasma arches & CME shockwaves',
     description:
-      'The gravitational and radiative heart of our Solar System. Driven by core thermonuclear fusion, twisted magnetic flux ropes erupt from sunspot regions as towering solar prominences and X-Class Coronal Mass Ejections (press [X] to trigger).',
+      'The gravitational and radiative heart of the Sovereign Grid. Sustains eight habitable Earth-class worlds with golden sunlight and magnetic solar wind.',
   },
   {
-    id: 'mercury',
+    id: 'gaia',
     keybind: '1',
-    name: 'Mercury',
-    order: 'PLANET // 01',
-    classification: 'Terrestrial World',
-    radius: 1.35,
-    distance: 28,
-    orbitalSpeed: 1.607,
-    rotationSpeed: 0.002,
-    tilt: 0.03,
-    eccentricity: 0.06,
-    color: '#94a3b8',
-    badgeBg: 'radial-gradient(circle at 30% 30%, #cbd5e1, #64748b, #334155)',
-    diameter: '4,879 km',
-    distanceText: '0.39 AU (57.9M km)',
-    orbitText: '88 Earth Days',
-    tempText: '-180°C to 430°C',
-    moonsText: '0 Moons',
-    rotationText: '58.6 Days / 0.03°',
-    gravity: 'Gravity: 3.7 m/s²',
-    atmosphere: 'Ultra-thin exosphere: Oxygen, Sodium, Hydrogen, Helium',
-    description:
-      'The innermost and smallest planet in the Solar System. Heavily cratered by ancient impacts including the Caloris Basin, Mercury endures intense solar wind bombardment and extreme day-night thermal swings.',
-  },
-  {
-    id: 'venus',
-    keybind: '2',
-    name: 'Venus',
-    order: 'PLANET // 02',
-    classification: 'Terrestrial World',
-    radius: 2.35,
-    distance: 40,
-    orbitalSpeed: 1.174,
-    rotationSpeed: -0.0015,
-    tilt: 177.3,
-    eccentricity: 0.01,
-    color: '#fbbf24',
-    badgeBg: 'radial-gradient(circle at 30% 30%, #fde68a, #d97706, #78350f)',
-    diameter: '12,104 km',
-    distanceText: '0.72 AU (108.2M km)',
-    orbitText: '224.7 Earth Days',
-    tempText: '465°C (Runaway Greenhouse)',
-    moonsText: '0 Moons',
-    rotationText: '-243 Days (Retrograde)',
-    gravity: 'Gravity: 8.87 m/s²',
-    atmosphere: '96.5% CO₂, 3.5% N₂, super-rotating Sulfuric Acid cloud decks',
-    description:
-      'Cloaked in dense golden sulfuric acid clouds that reflect 75% of sunlight, Venus traps heat in a runaway greenhouse effect that makes its volcanic plains hotter than Mercury.',
-  },
-  {
-    id: 'earth',
-    keybind: '3',
-    name: 'Earth',
-    order: 'PLANET // 03',
-    classification: 'Oceanic Terrestrial World',
-    radius: 2.55,
-    distance: 56,
-    orbitalSpeed: 1.0,
+    name: 'Gaia',
+    order: 'REALM // 01',
+    classification: 'Prime Oceanic Earth World',
+    radius: 4.0,
+    distance: 35,
+    orbitalSpeed: 1.35,
     rotationSpeed: 0.012,
-    tilt: 23.44,
-    eccentricity: 0.016,
+    tilt: 23.4,
+    eccentricity: 0.015,
     color: '#38bdf8',
     badgeBg: 'radial-gradient(circle at 30% 30%, #7dd3fc, #0284c7, #1e3a8a)',
     diameter: '12,742 km',
-    distanceText: '1.00 AU (149.6M km)',
-    orbitText: '365.25 Days',
-    tempText: '-89°C to 57°C (Mean 15°C)',
-    moonsText: '1 (Luna)',
-    rotationText: '23h 56m / 23.4°',
+    distanceText: '0.68 AU',
+    orbitText: '280 Days',
+    tempText: '16°C Mean (Temperate)',
+    moonsText: '1 (Selene)',
+    rotationText: '24h 00m / 23.4°',
     gravity: 'Gravity: 9.81 m/s²',
-    atmosphere: '78% Nitrogen, 21% Oxygen, 0.9% Argon, dynamic H₂O weather clouds',
+    atmosphere: '78% Nitrogen, 21% Oxygen, dynamic Cumulus & Cirrus cloud decks',
     description:
-      'Our home oasis in the cosmos. Features specular liquid water oceans, tectonic continents, polar ice caps, a Rayleigh-scattering blue atmosphere rim, and our large stabilizing Moon.',
+      'The ancestral cradle of life. Features deep sapphire oceans, lush emerald continents, snow-capped tectonic cordilleras, and a bright Rayleigh-scattering blue atmosphere.',
   },
   {
-    id: 'mars',
+    id: 'olympus',
+    keybind: '2',
+    name: 'Olympus',
+    order: 'REALM // 02',
+    classification: 'Highland Terrestrial Earth World',
+    radius: 4.8,
+    distance: 58,
+    orbitalSpeed: 1.12,
+    rotationSpeed: 0.011,
+    tilt: 19.8,
+    eccentricity: 0.012,
+    color: '#f59e0b',
+    badgeBg: 'radial-gradient(circle at 30% 30%, #fde68a, #0284c7, #1e3a8a)',
+    diameter: '14,850 km',
+    distanceText: '0.88 AU',
+    orbitText: '330 Days',
+    tempText: '18°C Mean (Mediterranean)',
+    moonsText: '1 (Aegis)',
+    rotationText: '25h 12m / 19.8°',
+    gravity: 'Gravity: 10.2 m/s²',
+    atmosphere: '77% Nitrogen, 22% Oxygen, golden-rimmed mountain cloud formations',
+    description:
+      'An Earth-like world famed for its towering marble-white mountain ranges, sunlit Mediterranean archipelagos, warm azure seas, and fertile golden plateaus.',
+  },
+  {
+    id: 'elysium',
+    keybind: '3',
+    name: 'Elysium',
+    order: 'REALM // 03',
+    classification: 'Verdant Garden Earth World',
+    radius: 4.3,
+    distance: 82,
+    orbitalSpeed: 0.96,
+    rotationSpeed: 0.0125,
+    tilt: 21.5,
+    eccentricity: 0.016,
+    color: '#10b981',
+    badgeBg: 'radial-gradient(circle at 30% 30%, #6ee7b7, #059669, #0c4a6e)',
+    diameter: '13,620 km',
+    distanceText: '1.05 AU',
+    orbitText: '385 Days',
+    tempText: '17°C Mean (Subtropical)',
+    moonsText: '1 (Aura)',
+    rotationText: '23h 45m / 21.5°',
+    gravity: 'Gravity: 9.75 m/s²',
+    atmosphere: '78% Nitrogen, 21.5% Oxygen, trade-wind cyclone wisps',
+    description:
+      'A paradise Earth world covered in vast emerald rainforest basins, winding river deltas, shimmering turquoise lagoons, and tranquil polar ice sheets.',
+  },
+  {
+    id: 'atlantis',
     keybind: '4',
-    name: 'Mars',
-    order: 'PLANET // 04',
-    classification: 'Terrestrial World',
-    radius: 1.75,
-    distance: 73,
-    orbitalSpeed: 0.802,
-    rotationSpeed: 0.0115,
-    tilt: 25.19,
-    eccentricity: 0.05,
-    color: '#f97316',
-    badgeBg: 'radial-gradient(circle at 30% 30%, #fdba74, #ea580c, #7c2d12)',
-    diameter: '6,779 km',
-    distanceText: '1.52 AU (227.9M km)',
-    orbitText: '687 Earth Days',
-    tempText: '-125°C to 20°C',
-    moonsText: '2 (Phobos & Deimos)',
-    rotationText: '24h 37m / 25.2°',
-    gravity: 'Gravity: 3.72 m/s²',
-    atmosphere: '95% CO₂, 2.6% N₂, 1.9% Argon, suspended iron-oxide dust haze',
+    name: 'Atlantis',
+    order: 'REALM // 04',
+    classification: 'Pelagic Archipelago Earth World',
+    radius: 3.7,
+    distance: 105,
+    orbitalSpeed: 0.82,
+    rotationSpeed: 0.013,
+    tilt: 24.0,
+    eccentricity: 0.02,
+    color: '#06b6d4',
+    badgeBg: 'radial-gradient(circle at 30% 30%, #67e8f9, #0891b2, #172554)',
+    diameter: '11,940 km',
+    distanceText: '1.28 AU',
+    orbitText: '460 Days',
+    tempText: '15°C Mean (Pelagic)',
+    moonsText: '2 (Triton & Nereus)',
+    rotationText: '22h 50m / 24.0°',
+    gravity: 'Gravity: 9.60 m/s²',
+    atmosphere: '79% Nitrogen, 20.5% Oxygen, oceanic marine cloud bands',
     description:
-      'The Red Planet owes its rusty ochre hue to iron oxide dust blanketing basaltic plains, towering shield volcanoes like Olympus Mons, the Valles Marineris canyon system, and polar CO₂ ice caps.',
+      'A breathtaking oceanic Earth world where ring-shaped island continents and shallow turquoise coral shelves rise above deep cobalt-blue oceans.',
   },
   {
-    id: 'jupiter',
+    id: 'arcadia',
     keybind: '5',
-    name: 'Jupiter',
-    order: 'PLANET // 05',
-    classification: 'Gas Giant',
-    radius: 6.8,
-    distance: 118,
-    orbitalSpeed: 0.434,
-    rotationSpeed: 0.026,
-    tilt: 3.13,
-    eccentricity: 0.03,
-    color: '#fb923c',
-    badgeBg: 'radial-gradient(circle at 30% 30%, #fed7aa, #c2410c, #431407)',
-    diameter: '139,820 km',
-    distanceText: '5.20 AU (778.5M km)',
-    orbitText: '11.86 Earth Years',
-    tempText: '-110°C (Cloud Tops)',
-    moonsText: '95 (Io, Europa, Ganymede, Callisto)',
-    rotationText: '9h 55m / 3.1°',
-    gravity: 'Gravity: 24.79 m/s²',
-    atmosphere: '90% Hydrogen, 10% Helium, Ammonia zonal jet streams & Great Red Spot',
+    name: 'Arcadia',
+    order: 'REALM // 05',
+    classification: 'Sylvan Super-Earth World',
+    radius: 5.8,
+    distance: 164,
+    orbitalSpeed: 0.64,
+    rotationSpeed: 0.014,
+    tilt: 18.2,
+    eccentricity: 0.018,
+    color: '#22c55e',
+    badgeBg: 'radial-gradient(circle at 30% 30%, #86efac, #16a34a, #1e3a8a)',
+    diameter: '17,400 km',
+    distanceText: '1.65 AU',
+    orbitText: '610 Days',
+    tempText: '14°C Mean (Temperate Forest)',
+    moonsText: '2 (Pan & Sylvan)',
+    rotationText: '21h 30m / 18.2°',
+    gravity: 'Gravity: 10.6 m/s²',
+    atmosphere: '77% Nitrogen, 22% Oxygen, rich biosphere mist & aurorae',
     description:
-      'The colossus of the Solar System. Its rapid 10-hour spin drives counter-flowing ammonia cloud belts, vortex eddies, the Great Red Spot anticyclone, and the four Galilean moons.',
+      'An unspoiled pastoral Super-Earth of sprawling redwood continents, alpine lakes, deep sapphire seas, and crisp highland valleys.',
   },
   {
-    id: 'saturn',
+    id: 'hyperborea',
     keybind: '6',
-    name: 'Saturn',
-    order: 'PLANET // 06',
-    classification: 'Ringed Gas Giant',
-    radius: 5.6,
-    distance: 162,
-    orbitalSpeed: 0.323,
-    rotationSpeed: 0.024,
-    tilt: 26.73,
-    eccentricity: 0.04,
-    color: '#fde047',
-    badgeBg: 'radial-gradient(circle at 30% 30%, #fef9c3, #ca8a04, #713f12)',
-    diameter: '116,460 km',
-    distanceText: '9.58 AU (1.43B km)',
-    orbitText: '29.45 Earth Years',
-    tempText: '-140°C (Cloud Tops)',
-    moonsText: '146 (Titan, Enceladus, Rhea)',
-    rotationText: '10h 33m / 26.7°',
-    gravity: 'Gravity: 10.44 m/s²',
-    atmosphere: '96% Hydrogen, 3% Helium, golden Ammonia haze & icy Ring System',
+    name: 'Hyperborea',
+    order: 'REALM // 06',
+    classification: 'Boreal Terrestrial Earth World',
+    radius: 5.2,
+    distance: 200,
+    orbitalSpeed: 0.51,
+    rotationSpeed: 0.012,
+    tilt: 26.2,
+    eccentricity: 0.022,
+    color: '#60a5fa',
+    badgeBg: 'radial-gradient(circle at 30% 30%, #e0f2fe, #2563eb, #1e1b4b)',
+    diameter: '15,900 km',
+    distanceText: '2.10 AU',
+    orbitText: '820 Days',
+    tempText: '9°C Mean (Boreal Alpine)',
+    moonsText: '1 (Boreas)',
+    rotationText: '24h 20m / 26.2°',
+    gravity: 'Gravity: 9.88 m/s²',
+    atmosphere: '78% Nitrogen, 21% Oxygen, crystalline polar clouds',
     description:
-      'Crowned by an expansive ring system spanning 282,000 km across, composed of pure water-ice particles sculpted into the A, B, and C rings divided by the Cassini Division and Encke Gap.',
+      'A majestic northern-style Earth world of pine-covered continents, dramatic fjord coastlines, geothermal valleys, and expansive polar ice caps.',
   },
   {
-    id: 'uranus',
+    id: 'avalon',
     keybind: '7',
-    name: 'Uranus',
-    order: 'PLANET // 07',
-    classification: 'Ice Giant',
-    radius: 3.9,
-    distance: 204,
-    orbitalSpeed: 0.228,
-    rotationSpeed: -0.016,
-    tilt: 97.77,
-    eccentricity: 0.03,
-    color: '#67e8f9',
-    badgeBg: 'radial-gradient(circle at 30% 30%, #cffafe, #06b6d4, #164e63)',
-    diameter: '50,724 km',
-    distanceText: '19.2 AU (2.87B km)',
-    orbitText: '84 Earth Years',
-    tempText: '-195°C (Coldest Atmosphere)',
-    moonsText: '28 (Miranda, Ariel, Titania)',
-    rotationText: '-17h 14m / 97.8° (Sideways)',
-    gravity: 'Gravity: 8.69 m/s²',
-    atmosphere: '83% Hydrogen, 15% Helium, 2.3% Methane ice haze',
+    name: 'Avalon',
+    order: 'REALM // 07',
+    classification: 'Misty Isle Earth World',
+    radius: 4.4,
+    distance: 234,
+    orbitalSpeed: 0.4,
+    rotationSpeed: 0.0115,
+    tilt: 22.8,
+    eccentricity: 0.014,
+    color: '#34d399',
+    badgeBg: 'radial-gradient(circle at 30% 30%, #a7f3d0, #0d9488, #1e3a8a)',
+    diameter: '13,880 km',
+    distanceText: '2.65 AU',
+    orbitText: '1,120 Days',
+    tempText: '13°C Mean (Temperate Maritime)',
+    moonsText: '1 (Nimue)',
+    rotationText: '24h 40m / 22.8°',
+    gravity: 'Gravity: 9.72 m/s²',
+    atmosphere: '78% Nitrogen, 21% Oxygen, silver-white atmospheric cloud swirls',
     description:
-      'An ice giant knocked onto its side with a 97.8-degree axial tilt, causing its polar rings and moons to orbit perpendicular to the ecliptic plane.',
+      'A mystical Earth-twin of emerald island continents, inland freshwater seas, silver cloud ribbons, and calm aquamarine coastal shelves.',
   },
   {
-    id: 'neptune',
+    id: 'aether',
     keybind: '8',
-    name: 'Neptune',
-    order: 'PLANET // 08',
-    classification: 'Ice Giant',
-    radius: 3.8,
-    distance: 242,
-    orbitalSpeed: 0.182,
-    rotationSpeed: 0.018,
-    tilt: 28.32,
+    name: 'Aether',
+    order: 'REALM // 08',
+    classification: 'Celestial Frontier Earth World',
+    radius: 4.6,
+    distance: 268,
+    orbitalSpeed: 0.32,
+    rotationSpeed: 0.013,
+    tilt: 20.5,
     eccentricity: 0.01,
-    color: '#3b82f6',
-    badgeBg: 'radial-gradient(circle at 30% 30%, #93c5fd, #2563eb, #1e1b4b)',
-    diameter: '49,244 km',
-    distanceText: '30.1 AU (4.50B km)',
-    orbitText: '164.8 Earth Years',
-    tempText: '-200°C (Cloud Tops)',
-    moonsText: '16 (Triton, Proteus)',
-    rotationText: '16h 06m / 28.3°',
-    gravity: 'Gravity: 11.15 m/s²',
-    atmosphere: '80% Hydrogen, 19% Helium, 1.5% Methane with supersonic cirrus streaks',
+    color: '#818cf8',
+    badgeBg: 'radial-gradient(circle at 30% 30%, #c7d2fe, #0284c7, #1e1b4b)',
+    diameter: '14,350 km',
+    distanceText: '3.20 AU',
+    orbitText: '1,480 Days',
+    tempText: '12°C Mean (Highland Earth)',
+    moonsText: '1 (Hemera)',
+    rotationText: '23h 15m / 20.5°',
+    gravity: 'Gravity: 9.90 m/s²',
+    atmosphere: '78% Nitrogen, 21% Oxygen, high-altitude indigo-blue Rayleigh halo',
     description:
-      'The outermost major planet in the Solar System. Internal heat powers 2,100 km/h supersonic winds, carving bright white methane cirrus streaks and dark anticyclonic storms.',
+      'The outermost sovereign Earth world, where deep indigo oceans meet lush temperate continents beneath a luminous sapphire-violet atmospheric crown.',
   },
   {
     id: 'orion',
@@ -2944,9 +2873,161 @@ function mixColor(c1: number[], c2: number[], t: number): [number, number, numbe
   ];
 }
 
+// Biome & Continent Profiles for all 8 Ancient English Earth Realms
+interface EarthBiomeProfile {
+  seedOffsetU: number;
+  seedOffsetV: number;
+  continentScale: number;
+  seaLevel: number;
+  iceThreshold: number;
+  deepOcean: [number, number, number];
+  midOcean: [number, number, number];
+  coastalShelf: [number, number, number];
+  lowlandForest: [number, number, number];
+  highlandForest: [number, number, number];
+  savannaDesert: [number, number, number];
+  mountainRock: [number, number, number];
+  snowPeak: [number, number, number];
+}
+
+const EARTH_REALM_PROFILES: Record<string, EarthBiomeProfile> = {
+  gaia: {
+    seedOffsetU: 1.7,
+    seedOffsetV: 0.4,
+    continentScale: 2.35,
+    seaLevel: 0.5,
+    iceThreshold: 0.84,
+    deepOcean: [6, 26, 68],
+    midOcean: [14, 58, 124],
+    coastalShelf: [28, 126, 178],
+    lowlandForest: [30, 86, 42],
+    highlandForest: [72, 124, 54],
+    savannaDesert: [194, 158, 98],
+    mountainRock: [110, 96, 84],
+    snowPeak: [244, 248, 255],
+  },
+  olympus: {
+    seedOffsetU: 5.2,
+    seedOffsetV: 2.1,
+    continentScale: 2.15,
+    seaLevel: 0.47,
+    iceThreshold: 0.82,
+    deepOcean: [8, 32, 78],
+    midOcean: [18, 72, 138],
+    coastalShelf: [42, 146, 192],
+    lowlandForest: [46, 98, 44],
+    highlandForest: [92, 134, 58],
+    savannaDesert: [212, 172, 104],
+    mountainRock: [132, 118, 102],
+    snowPeak: [250, 250, 255],
+  },
+  elysium: {
+    seedOffsetU: 9.4,
+    seedOffsetV: 3.7,
+    continentScale: 2.5,
+    seaLevel: 0.51,
+    iceThreshold: 0.86,
+    deepOcean: [5, 34, 72],
+    midOcean: [12, 76, 128],
+    coastalShelf: [24, 158, 172],
+    lowlandForest: [22, 96, 48],
+    highlandForest: [58, 138, 66],
+    savannaDesert: [176, 156, 92],
+    mountainRock: [104, 98, 88],
+    snowPeak: [242, 250, 252],
+  },
+  atlantis: {
+    seedOffsetU: 13.8,
+    seedOffsetV: 6.2,
+    continentScale: 3.1,
+    seaLevel: 0.555,
+    iceThreshold: 0.85,
+    deepOcean: [4, 28, 76],
+    midOcean: [14, 74, 144],
+    coastalShelf: [38, 176, 204],
+    lowlandForest: [28, 98, 56],
+    highlandForest: [68, 132, 72],
+    savannaDesert: [208, 184, 128],
+    mountainRock: [116, 108, 98],
+    snowPeak: [245, 250, 255],
+  },
+  arcadia: {
+    seedOffsetU: 18.1,
+    seedOffsetV: 1.9,
+    continentScale: 2.2,
+    seaLevel: 0.485,
+    iceThreshold: 0.83,
+    deepOcean: [7, 28, 66],
+    midOcean: [16, 62, 122],
+    coastalShelf: [32, 134, 168],
+    lowlandForest: [24, 82, 38],
+    highlandForest: [64, 118, 48],
+    savannaDesert: [182, 148, 88],
+    mountainRock: [106, 92, 80],
+    snowPeak: [244, 248, 252],
+  },
+  hyperborea: {
+    seedOffsetU: 23.5,
+    seedOffsetV: 4.8,
+    continentScale: 2.4,
+    seaLevel: 0.5,
+    iceThreshold: 0.72,
+    deepOcean: [6, 22, 62],
+    midOcean: [14, 52, 116],
+    coastalShelf: [44, 128, 182],
+    lowlandForest: [28, 76, 52],
+    highlandForest: [62, 108, 74],
+    savannaDesert: [168, 156, 124],
+    mountainRock: [118, 118, 126],
+    snowPeak: [248, 252, 255],
+  },
+  avalon: {
+    seedOffsetU: 29.3,
+    seedOffsetV: 7.4,
+    continentScale: 2.75,
+    seaLevel: 0.525,
+    iceThreshold: 0.84,
+    deepOcean: [6, 32, 70],
+    midOcean: [16, 72, 128],
+    coastalShelf: [36, 154, 176],
+    lowlandForest: [26, 92, 54],
+    highlandForest: [66, 132, 76],
+    savannaDesert: [188, 166, 108],
+    mountainRock: [112, 104, 96],
+    snowPeak: [246, 250, 255],
+  },
+  aether: {
+    seedOffsetU: 35.7,
+    seedOffsetV: 2.9,
+    continentScale: 2.3,
+    seaLevel: 0.505,
+    iceThreshold: 0.81,
+    deepOcean: [8, 24, 74],
+    midOcean: [18, 56, 134],
+    coastalShelf: [42, 132, 194],
+    lowlandForest: [32, 88, 56],
+    highlandForest: [74, 126, 72],
+    savannaDesert: [192, 162, 112],
+    mountainRock: [116, 106, 102],
+    snowPeak: [246, 248, 255],
+  },
+};
+
+const planetTextureCache = new Map<
+  string,
+  { map: THREE.CanvasTexture; bumpMap: THREE.CanvasTexture; specularMap: THREE.CanvasTexture | null }
+>();
+const cloudTextureCache = new Map<string, THREE.CanvasTexture>();
+let cachedSkyboxTexture: THREE.CanvasTexture | null = null;
+
 function generatePlanetTextures(planetId: string) {
-  const width = 1024,
-    height = 512;
+  const cached = planetTextureCache.get(planetId);
+  if (cached) return cached;
+
+  const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
+  const width = isMobile ? 384 : 512;
+  const height = isMobile ? 192 : 256;
+
   const albedoCanvas = document.createElement('canvas');
   albedoCanvas.width = width;
   albedoCanvas.height = height;
@@ -2959,10 +3040,11 @@ function generatePlanetTextures(planetId: string) {
   const bumpCtx = bumpCanvas.getContext('2d')!;
   const bumpData = bumpCtx.createImageData(width, height);
 
+  const isMoon = planetId === 'moon';
   let specCanvas: HTMLCanvasElement | null = null;
   let specCtx: CanvasRenderingContext2D | null = null;
   let specData: ImageData | null = null;
-  if (planetId === 'earth') {
+  if (!isMoon) {
     specCanvas = document.createElement('canvas');
     specCanvas.width = width;
     specCanvas.height = height;
@@ -2971,14 +3053,13 @@ function generatePlanetTextures(planetId: string) {
   }
 
   const craters: { x: number; y: number; z: number; r: number; depth: number }[] = [];
-  if (planetId === 'mercury' || planetId === 'mars' || planetId === 'moon') {
-    const count = planetId === 'mercury' ? 140 : planetId === 'moon' ? 110 : 75;
-    let s = planetId === 'mercury' ? 91 : 213;
+  if (isMoon) {
+    let s = 213;
     const rand = () => {
       s = (s * 16807) % 2147483647;
       return (s - 1) / 2147483646;
     };
-    for (let i = 0; i < count; i++) {
+    for (let i = 0; i < 80; i++) {
       const u = rand();
       const v = 0.1 + rand() * 0.8;
       const theta = u * Math.PI * 2;
@@ -2992,6 +3073,8 @@ function generatePlanetTextures(planetId: string) {
       });
     }
   }
+
+  const profile = EARTH_REALM_PROFILES[planetId] || EARTH_REALM_PROFILES.gaia;
 
   for (let y = 0; y < height; y++) {
     const v = y / height;
@@ -3011,9 +3094,9 @@ function generatePlanetTextures(planetId: string) {
       let rgb: [number, number, number] = [128, 128, 128];
       let bumpVal = 128;
 
-      if (planetId === 'mercury' || planetId === 'moon') {
-        const n1 = noiseGen.sphereFBM(u, v, 3.2, 5, 0.55);
-        const n2 = noiseGen.sphereFBM(u + 0.3, v, 12.0, 4, 0.5);
+      if (isMoon) {
+        const n1 = noiseGen.sphereFBM(u, v, 3.2, 3, 0.55);
+        const n2 = noiseGen.sphereFBM(u + 0.3, v, 12.0, 2, 0.5);
         let h = n1 * 0.7 + n2 * 0.3;
         let craterOffset = 0;
         for (let c = 0; c < craters.length; c++) {
@@ -3031,158 +3114,58 @@ function generatePlanetTextures(planetId: string) {
           }
         }
         h = clamp(h + craterOffset, 0, 1);
-        const darkBasalt = planetId === 'mercury' ? [74, 70, 68] : [90, 92, 98];
-        const midRegolith = planetId === 'mercury' ? [138, 132, 126] : [155, 158, 162];
-        const brightHighland = planetId === 'mercury' ? [196, 189, 182] : [215, 218, 222];
         rgb =
           h < 0.48
-            ? mixColor(darkBasalt, midRegolith, h / 0.48)
-            : mixColor(midRegolith, brightHighland, (h - 0.48) / 0.52);
+            ? mixColor([90, 92, 98], [155, 158, 162], h / 0.48)
+            : mixColor([155, 158, 162], [215, 218, 222], (h - 0.48) / 0.52);
         bumpVal = clamp(h * 255, 0, 255);
-      } else if (planetId === 'venus') {
-        const warp = noiseGen.sphereFBM(u, v, 2.5, 4, 0.5) * 0.12;
-        const bandPattern = Math.sin((v + warp) * Math.PI * 10);
-        const swirl = noiseGen.sphereFBM(u * 1.8 + warp, v * 3.5, 4.0, 5, 0.55);
-        const t = clamp(swirl * 0.72 + (bandPattern * 0.5 + 0.5) * 0.28, 0, 1);
-        rgb =
-          t < 0.5
-            ? mixColor([168, 102, 36], [226, 174, 92], t * 2)
-            : mixColor([226, 174, 92], [249, 226, 168], (t - 0.5) * 2);
-        bumpVal = clamp(t * 180 + 40, 0, 255);
-      } else if (planetId === 'earth' && specData) {
-        const warpU = noiseGen.sphereFBM(u + 1.7, v + 0.4, 2.2, 3, 0.5) * 0.08;
-        const warpV = noiseGen.sphereFBM(u + 4.1, v + 2.3, 2.2, 3, 0.5) * 0.08;
-        const cont = noiseGen.sphereFBM(u + warpU, v + warpV, 2.4, 6, 0.54);
-        const detail = noiseGen.sphereFBM(u, v, 14.0, 4, 0.5);
-        const moisture = noiseGen.sphereFBM(u + 3.1, v + 1.2, 3.5, 4, 0.5);
-        const seaLevel = 0.505;
-        const iceThreshold = 0.83 - (detail - 0.5) * 0.08;
+      } else if (specData) {
+        // Photorealistic Earth-Class World Synthesis (Smooth Continents, Coastal Shelves, Specular Water & Mountain Relief)
+        const su = u + profile.seedOffsetU;
+        const sv = v + profile.seedOffsetV;
+        const warpU = noiseGen.sphereFBM(su, sv, 2.2, 2, 0.5) * 0.085;
+        const warpV = noiseGen.sphereFBM(su + 2.4, sv + 1.9, 2.2, 2, 0.5) * 0.085;
+        const cont = noiseGen.sphereFBM(su + warpU, sv + warpV, profile.continentScale, 4, 0.54);
+        const detail = noiseGen.sphereFBM(su, sv, 14.0, 2, 0.5);
+        const moisture = noiseGen.sphereFBM(su + 3.1, sv + 1.2, 3.5, 2, 0.5);
+        const seaLevel = profile.seaLevel;
+        const iceThreshold = profile.iceThreshold - (detail - 0.5) * 0.08;
 
         if (poleFactor > iceThreshold) {
-          rgb = [242, 248, 255];
-          bumpVal = 145;
-          specData.data[idx] = 60;
-          specData.data[idx + 1] = 60;
-          specData.data[idx + 2] = 60;
+          rgb = profile.snowPeak;
+          bumpVal = 148;
+          specData.data[idx] = 65;
+          specData.data[idx + 1] = 65;
+          specData.data[idx + 2] = 65;
           specData.data[idx + 3] = 255;
         } else if (cont < seaLevel) {
           const depthT = clamp(cont / seaLevel, 0, 1);
           rgb =
-            depthT < 0.84
-              ? mixColor([8, 28, 72], [15, 58, 122], depthT / 0.84)
-              : mixColor([15, 58, 122], [28, 118, 168], (depthT - 0.84) / 0.16);
+            depthT < 0.82
+              ? mixColor(profile.deepOcean, profile.midOcean, depthT / 0.82)
+              : mixColor(profile.midOcean, profile.coastalShelf, (depthT - 0.82) / 0.18);
           bumpVal = 110;
           specData.data[idx] = 235;
-          specData.data[idx + 1] = 240;
+          specData.data[idx + 1] = 242;
           specData.data[idx + 2] = 255;
           specData.data[idx + 3] = 255;
         } else {
           const landElev = clamp((cont - seaLevel) / (1 - seaLevel), 0, 1);
           const latDist = Math.abs(poleFactor - 0.25);
           const desertFactor = clamp((1 - latDist * 3.8) * (1 - moisture * 0.9), 0, 1);
-          let baseLand = mixColor([34, 88, 42], [76, 124, 56], detail);
-          baseLand = mixColor(baseLand, [194, 158, 98], desertFactor);
-          if (landElev > 0.62)
-            rgb = mixColor([112, 96, 84], [240, 244, 248], (landElev - 0.62) / 0.38);
-          else if (landElev > 0.36)
-            rgb = mixColor(baseLand, [112, 96, 84], (landElev - 0.36) / 0.26);
+          let baseLand = mixColor(profile.lowlandForest, profile.highlandForest, detail);
+          baseLand = mixColor(baseLand, profile.savannaDesert, desertFactor);
+          if (landElev > 0.6)
+            rgb = mixColor(profile.mountainRock, profile.snowPeak, (landElev - 0.6) / 0.4);
+          else if (landElev > 0.34)
+            rgb = mixColor(baseLand, profile.mountainRock, (landElev - 0.34) / 0.26);
           else rgb = baseLand;
           bumpVal = clamp(128 + landElev * 127 + (detail - 0.5) * 35, 120, 255);
-          specData.data[idx] = 18;
-          specData.data[idx + 1] = 18;
-          specData.data[idx + 2] = 18;
+          specData.data[idx] = 16;
+          specData.data[idx + 1] = 16;
+          specData.data[idx + 2] = 16;
           specData.data[idx + 3] = 255;
         }
-      } else if (planetId === 'mars') {
-        const n1 = noiseGen.sphereFBM(u, v, 2.8, 5, 0.55);
-        const n2 = noiseGen.sphereFBM(u + 1.2, v, 10.0, 4, 0.5);
-        let h = n1 * 0.72 + n2 * 0.28;
-        for (let c = 0; c < craters.length; c++) {
-          const cr = craters[c];
-          const dx = px - cr.x,
-            dy = py - cr.y,
-            dz = pz - cr.z;
-          const distSq = dx * dx + dy * dy + dz * dz;
-          if (distSq < cr.r * cr.r * 1.3) {
-            const d = Math.sqrt(distSq) / cr.r;
-            if (d < 0.85) h -= (1 - d) * 0.22;
-            else if (d < 1.15) h += 0.09;
-          }
-        }
-        h = clamp(h, 0, 1);
-        if (poleFactor > 0.87 - (n2 - 0.5) * 0.06) {
-          rgb = [238, 232, 228];
-          bumpVal = 190;
-        } else {
-          rgb =
-            h < 0.42
-              ? mixColor([92, 42, 26], [184, 82, 42], h / 0.42)
-              : mixColor([184, 82, 42], [226, 134, 78], (h - 0.42) / 0.58);
-          bumpVal = clamp(h * 255, 0, 255);
-        }
-      } else if (planetId === 'jupiter') {
-        const turb = noiseGen.sphereFBM(u * 2.2, v * 6.0, 3.8, 5, 0.55) - 0.5;
-        const fineSwirl = noiseGen.sphereFBM(u * 5.0 + turb * 0.2, v * 12.0, 6.0, 4, 0.5);
-        const lat = v + turb * 0.045;
-        const z1 = Math.sin(lat * Math.PI * 14);
-        const z2 = Math.cos(lat * Math.PI * 26) * 0.5;
-        const z3 = Math.sin(lat * Math.PI * 6);
-        const bandVal = clamp((z1 + z2 + z3 * 0.4) * 0.35 + 0.5 + (fineSwirl - 0.5) * 0.22, 0, 1);
-
-        rgb =
-          bandVal < 0.45
-            ? mixColor([146, 78, 46], [204, 142, 92], bandVal / 0.45)
-            : mixColor([204, 142, 92], [242, 228, 204], (bandVal - 0.45) / 0.55);
-        if (poleFactor > 0.78) rgb = mixColor(rgb, [138, 128, 118], (poleFactor - 0.78) / 0.22);
-
-        let du = Math.abs(u - 0.5);
-        if (du > 0.5) du = 1.0 - du;
-        const dv = v - 0.63;
-        const grsDist = Math.sqrt(du * 9.5 * (du * 9.5) + dv * 18.0 * (dv * 18.0));
-        if (grsDist < 1.15) {
-          const swirlAngle = grsDist * 5.0 + fineSwirl * 2.0;
-          const spotColor = mixColor(
-            [198, 62, 36],
-            [232, 116, 68],
-            Math.sin(swirlAngle) * 0.5 + 0.5,
-          );
-          rgb = mixColor(rgb, spotColor, Math.pow(clamp(1 - grsDist / 1.15, 0, 1), 1.4));
-        }
-        bumpVal = clamp(bandVal * 160 + 50, 0, 255);
-      } else if (planetId === 'saturn') {
-        const turb = (noiseGen.sphereFBM(u * 2.0, v * 8.0, 3.0, 4, 0.5) - 0.5) * 0.02;
-        const lat = v + turb;
-        const band = Math.sin(lat * Math.PI * 18) * 0.35 + Math.cos(lat * Math.PI * 9) * 0.35 + 0.5;
-        const t = clamp(band, 0, 1);
-        rgb =
-          t < 0.5
-            ? mixColor([182, 146, 88], [224, 194, 134], t * 2)
-            : mixColor([224, 194, 134], [246, 232, 188], (t - 0.5) * 2);
-        if (poleFactor > 0.82) rgb = mixColor(rgb, [126, 134, 118], (poleFactor - 0.82) / 0.18);
-        bumpVal = clamp(t * 140 + 60, 0, 255);
-      } else if (planetId === 'uranus') {
-        const band = Math.sin(v * Math.PI * 8) * 0.15 + 0.5;
-        const n = noiseGen.sphereFBM(u, v, 3.0, 3, 0.5);
-        const t = clamp(band * 0.7 + n * 0.3, 0, 1);
-        rgb = mixColor([110, 202, 218], [188, 242, 248], t);
-        bumpVal = 128;
-      } else if (planetId === 'neptune') {
-        const turb = (noiseGen.sphereFBM(u * 3.0, v * 6.0, 3.5, 4, 0.5) - 0.5) * 0.03;
-        const lat = v + turb;
-        const band = Math.sin(lat * Math.PI * 12) * 0.3 + 0.5;
-        const streak = noiseGen.sphereFBM(u * 6.0, v * 22.0, 4.5, 4, 0.55);
-        rgb = mixColor([24, 56, 158], [48, 108, 228], clamp(band, 0, 1));
-        let du = Math.abs(u - 0.35);
-        if (du > 0.5) du = 1.0 - du;
-        const dv = v - 0.62;
-        const gdsDist = Math.sqrt(du * 11 * (du * 11) + dv * 20 * (dv * 20));
-        if (gdsDist < 1.0) {
-          rgb = mixColor(rgb, [12, 24, 88], 1 - gdsDist);
-        }
-        if (streak > 0.67 && poleFactor < 0.75) {
-          rgb = mixColor(rgb, [215, 238, 255], (streak - 0.67) / 0.33);
-        }
-        bumpVal = clamp(band * 150 + 50, 0, 255);
       }
 
       albedoData.data[idx] = rgb[0];
@@ -3212,24 +3195,35 @@ function generatePlanetTextures(planetId: string) {
     specCtx.putImageData(specData, 0, 0);
     specularMap = new THREE.CanvasTexture(specCanvas);
   }
-  return { map, bumpMap, specularMap };
+
+  const result = { map, bumpMap, specularMap };
+  planetTextureCache.set(planetId, result);
+  return result;
 }
 
-function generateEarthCloudsTexture() {
-  const width = 1024,
-    height = 512;
+function generateEarthCloudsTexture(planetId = 'gaia') {
+  const cached = cloudTextureCache.get(planetId);
+  if (cached) return cached;
+
+  const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
+  const width = isMobile ? 384 : 512;
+  const height = isMobile ? 192 : 256;
   const canvas = document.createElement('canvas');
   canvas.width = width;
   canvas.height = height;
   const ctx = canvas.getContext('2d')!;
   const imgData = ctx.createImageData(width, height);
 
+  const profile = EARTH_REALM_PROFILES[planetId] || EARTH_REALM_PROFILES.gaia;
+  const offsetU = profile.seedOffsetU * 0.7;
+  const offsetV = profile.seedOffsetV * 0.7;
+
   for (let y = 0; y < height; y++) {
     const v = y / height;
     for (let x = 0; x < width; x++) {
       const u = x / width;
-      const warp = noiseGen.sphereFBM(u + 2.0, v + 1.0, 3.2, 4, 0.5) * 0.1;
-      const n = noiseGen.sphereFBM(u + warp, v + warp * 0.5, 4.5, 5, 0.56);
+      const warp = noiseGen.sphereFBM(u + 2.0 + offsetU, v + 1.0 + offsetV, 3.2, 2, 0.5) * 0.1;
+      const n = noiseGen.sphereFBM(u + offsetU + warp, v + offsetV + warp * 0.5, 4.5, 3, 0.56);
       const cloudAlpha = clamp((n - 0.47) * 3.1, 0, 1);
       const idx = (y * width + x) * 4;
       imgData.data[idx] = 255;
@@ -3242,12 +3236,13 @@ function generateEarthCloudsTexture() {
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.anisotropy = 4;
+  cloudTextureCache.set(planetId, tex);
   return tex;
 }
 
 function generateRingTexture(isSaturn = true) {
-  const width = 1024,
-    height = 64;
+  const width = 512,
+    height = 32;
   const canvas = document.createElement('canvas');
   canvas.width = width;
   canvas.height = height;
@@ -3327,8 +3322,9 @@ function createCoronaGlowTexture(colorInner: string, colorMid: string, colorOute
 }
 
 function generateCosmosSkyboxTexture() {
-  const width = 1024,
-    height = 512;
+  if (cachedSkyboxTexture) return cachedSkyboxTexture;
+  const width = 512,
+    height = 256;
   const canvas = document.createElement('canvas');
   canvas.width = width;
   canvas.height = height;
@@ -3343,9 +3339,9 @@ function generateCosmosSkyboxTexture() {
       const distFromPlane = Math.abs(v - galacticCenterV);
       const planeMask = Math.exp(-distFromPlane * distFromPlane * 36.0);
 
-      const neb1 = noiseGen.sphereFBM(u, v, 2.6, 5, 0.55);
-      const neb2 = noiseGen.sphereFBM(u + 4.2, v + 1.8, 5.2, 4, 0.5);
-      const dustLane = noiseGen.sphereFBM(u * 2.0, v * 3.0, 6.5, 4, 0.55);
+      const neb1 = noiseGen.sphereFBM(u, v, 2.6, 3, 0.55);
+      const neb2 = noiseGen.sphereFBM(u + 4.2, v + 1.8, 5.2, 2, 0.5);
+      const dustLane = noiseGen.sphereFBM(u * 2.0, v * 3.0, 6.5, 2, 0.55);
 
       let col: [number, number, number] = [2, 4, 11];
       col = mixColor(col, [16, 26, 64], clamp(neb1 * planeMask * 1.35, 0, 1));
@@ -3367,6 +3363,7 @@ function generateCosmosSkyboxTexture() {
   ctx.putImageData(imgData, 0, 0);
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
+  cachedSkyboxTexture = tex;
   return tex;
 }
 
@@ -3552,6 +3549,40 @@ function sphericalToVec3(r: number, lat: number, lon: number) {
 
 /* ---------- 4. MAIN HELIOSPHERE v2.0 COMPONENT ---------- */
 
+export const ANCIENT_PLANET_IDS = [
+  'gaia',
+  'olympus',
+  'elysium',
+  'atlantis',
+  'arcadia',
+  'hyperborea',
+  'avalon',
+  'aether',
+] as const;
+
+export const RIVAL_SOVEREIGNS: Record<string, string> = {
+  gaia: 'Lord Hyperion',
+  olympus: 'Valkyrie Astra',
+  elysium: 'Archon Solon',
+  atlantis: 'Nereid Thalassa',
+  arcadia: 'Warden Sylvanus',
+  hyperborea: 'Jarl Boreas',
+  avalon: 'Oracle Morgana',
+  aether: 'Seraph Zephyr',
+};
+
+export function buildSovereignRegistry(playerOwnedPlanetId: string): Record<string, { ownerName: string; isPlayer: boolean }> {
+  const reg: Record<string, { ownerName: string; isPlayer: boolean }> = {};
+  for (const id of ANCIENT_PLANET_IDS) {
+    if (id === playerOwnedPlanetId) {
+      reg[id] = { ownerName: 'Commander (You)', isPlayer: true };
+    } else {
+      reg[id] = { ownerName: RIVAL_SOVEREIGNS[id] || 'Rival Sovereign', isPlayer: false };
+    }
+  }
+  return reg;
+}
+
 interface ControllerActions {
   toggleFlightMode: () => void;
   triggerSolarFlareCME: (showAlert?: boolean) => void;
@@ -3570,17 +3601,63 @@ interface ControllerActions {
   toggleAutopilot: () => void;
   zeroShipVelocity: () => void;
   toggleInvertPitch: () => void;
-  enterEarthAtmosphere: () => void;
+  enterEarthAtmosphere: (targetPlanetId?: string) => void;
+  setFlightKey: (code: string, active: boolean) => void;
 }
 
 export default function SolarSystem3D() {
   const rootRef = useRef<HTMLDivElement>(null);
   const actionsRef = useRef<ControllerActions | null>(null);
-  const [inEarthBase, setInEarthBase] = useState(false);
+  const cockpitStickRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const cockpitStickTouchId = useRef<number | null>(null);
+  const cockpitStickCenter = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [cockpitStickUi, setCockpitStickUi] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [playerOwnedPlanetId, setPlayerOwnedPlanetId] = useState<string>(() => {
+    try {
+      const saved = localStorage.getItem('sovereign_home_planet_v1');
+      if (saved && (ANCIENT_PLANET_IDS as readonly string[]).includes(saved)) {
+        return saved;
+      }
+    } catch {
+      // ignore storage errors
+    }
+    return 'gaia';
+  });
+  const [showClaimModal, setShowClaimModal] = useState<boolean>(() => {
+    try {
+      return !localStorage.getItem('sovereign_home_planet_v1');
+    } catch {
+      return false;
+    }
+  });
+  const [activeSurfacePlanetId, setActiveSurfacePlanetId] = useState<string | null>(null);
+  const [selectedPlanetId, setSelectedPlanetId] = useState<string>('gaia');
   const [divingToEarth, setDivingToEarth] = useState(false);
+  const [sidePanelOpen, setSidePanelOpen] = useState<boolean>(false);
+  const [sidePanelTab, setSidePanelTab] = useState<'realms' | 'controls' | 'keys'>('realms');
+  const [telemetryDetailsOpen, setTelemetryDetailsOpen] = useState<boolean>(false);
+  const [labelsEnabled, setLabelsEnabled] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('sovereign_labels_enabled_v1') !== 'false';
+    } catch {
+      return true;
+    }
+  });
+  const showLabelsRef = useRef<boolean>(labelsEnabled);
+
+  const handleClaimSovereignPlanet = (planetId: string) => {
+    setPlayerOwnedPlanetId(planetId);
+    setSelectedPlanetId(planetId);
+    try {
+      localStorage.setItem('sovereign_home_planet_v1', planetId);
+    } catch {
+      // ignore storage errors
+    }
+    setShowClaimModal(false);
+  };
 
   useEffect(() => {
-    if (inEarthBase) return;
+    if (activeSurfacePlanetId) return;
     const root = rootRef.current;
     if (!root) return;
 
@@ -3648,6 +3725,7 @@ export default function SolarSystem3D() {
         cloudMesh: THREE.Mesh | null;
         moons: { pivot: THREE.Group; speed: number }[];
         angle: number;
+        baseAngle: number;
       }
     > = {};
 
@@ -3702,9 +3780,9 @@ export default function SolarSystem3D() {
     let isPaused = false;
     let timeMultiplier = 1.0;
     let simulatedDays = 0;
-    let focusedPlanetId: string | null = 'earth';
+    let systemOrbitPhase = 0;
+    let focusedPlanetId: string | null = playerOwnedPlanetId || 'gaia';
     let showOrbits = true;
-    let showLabels = true;
     let showBelts = true;
     let showKeyboardHelp = true;
     let isTourMode = false;
@@ -3875,193 +3953,58 @@ export default function SolarSystem3D() {
           coronaSprite2.scale.setScalar(data.radius * 8.0);
           planetHolder.add(coronaSprite2);
         } else {
+          // All 8 ancient worlds are realistic Earth-class terrestrial worlds with specular oceans, clouds, atmosphere & natural moon
           const maps = generatePlanetTextures(data.id);
-          let mat: THREE.Material;
-          if (data.id === 'earth') {
-            mat = new THREE.MeshPhongMaterial({
-              map: maps.map,
-              bumpMap: maps.bumpMap,
-              bumpScale: 0.06,
-              specularMap: maps.specularMap ?? undefined,
-              specular: new THREE.Color(0x5588aa),
-              shininess: 32,
-            });
-          } else {
-            const isGasGiant = ['jupiter', 'saturn', 'uranus', 'neptune', 'venus'].includes(
-              data.id,
-            );
-            mat = new THREE.MeshStandardMaterial({
-              map: maps.map,
-              bumpMap: maps.bumpMap,
-              bumpScale: isGasGiant ? 0.015 : 0.085,
-              roughness: isGasGiant ? 0.65 : 0.85,
-              metalness: 0.04,
-            });
-          }
+          const mat = new THREE.MeshPhongMaterial({
+            map: maps.map,
+            bumpMap: maps.bumpMap,
+            bumpScale: 0.065,
+            specularMap: maps.specularMap ?? undefined,
+            specular: new THREE.Color(0x5588aa),
+            shininess: 34,
+          });
 
           mainMesh = new THREE.Mesh(sphereGeoHigh, mat);
           mainMesh.scale.setScalar(data.radius);
           tiltGroup.add(mainMesh);
 
-          if (data.id === 'earth') {
-            const cloudTex = generateEarthCloudsTexture();
-            cloudMesh = new THREE.Mesh(
-              sphereGeoHigh,
-              new THREE.MeshLambertMaterial({
-                map: cloudTex,
-                transparent: true,
-                opacity: 0.88,
-                depthWrite: false,
-              }),
-            );
-            cloudMesh.scale.setScalar(data.radius * 1.018);
-            tiltGroup.add(cloudMesh);
+          const cloudTex = generateEarthCloudsTexture(data.id);
+          cloudMesh = new THREE.Mesh(
+            sphereGeoHigh,
+            new THREE.MeshLambertMaterial({
+              map: cloudTex,
+              transparent: true,
+              opacity: 0.88,
+              depthWrite: false,
+            }),
+          );
+          cloudMesh.scale.setScalar(data.radius * 1.018);
+          tiltGroup.add(cloudMesh);
 
-            const atmoMesh = new THREE.Mesh(
-              sphereGeoHigh,
-              createAtmosphereMaterial(0x38bdf8, 0.9, 3.0),
-            );
-            atmoMesh.scale.setScalar(data.radius * 1.12);
-            planetHolder.add(atmoMesh);
+          const atmoColorHex = new THREE.Color(data.color || '#38bdf8').getHex();
+          const atmoMesh = new THREE.Mesh(
+            sphereGeoHigh,
+            createAtmosphereMaterial(atmoColorHex, 0.88, 3.0),
+          );
+          atmoMesh.scale.setScalar(data.radius * 1.12);
+          planetHolder.add(atmoMesh);
 
-            const moonMaps = generatePlanetTextures('moon');
-            const moonPivot = new THREE.Group();
-            moonPivot.rotation.z = 0.09;
-            const moonMesh = new THREE.Mesh(
-              new THREE.SphereGeometry(data.radius * 0.27, 32, 32),
-              new THREE.MeshStandardMaterial({
-                map: moonMaps.map,
-                bumpMap: moonMaps.bumpMap,
-                bumpScale: 0.06,
-                roughness: 0.9,
-              }),
-            );
-            moonMesh.position.set(data.radius * 2.6, 0, 0);
-            moonPivot.add(moonMesh);
-            planetHolder.add(moonPivot);
-            moons.push({ pivot: moonPivot, speed: 2.2 });
-          }
-
-          if (data.id === 'venus') {
-            const atmoMesh = new THREE.Mesh(
-              sphereGeoHigh,
-              createAtmosphereMaterial(0xfbbf24, 0.75, 2.8),
-            );
-            atmoMesh.scale.setScalar(data.radius * 1.11);
-            planetHolder.add(atmoMesh);
-          }
-
-          if (data.id === 'mars') {
-            const atmoMesh = new THREE.Mesh(
-              sphereGeoHigh,
-              createAtmosphereMaterial(0xf97316, 0.55, 3.4),
-            );
-            atmoMesh.scale.setScalar(data.radius * 1.09);
-            planetHolder.add(atmoMesh);
-          }
-
-          if (data.id === 'jupiter') {
-            const atmoMesh = new THREE.Mesh(
-              sphereGeoHigh,
-              createAtmosphereMaterial(0xfdba74, 0.5, 3.8),
-            );
-            atmoMesh.scale.setScalar(data.radius * 1.07);
-            planetHolder.add(atmoMesh);
-
-            const galileanSpecs = [
-              { dist: 1.48, size: 0.075, color: 0xfacc15, speed: 3.4 },
-              { dist: 1.82, size: 0.068, color: 0xe2e8f0, speed: 2.4 },
-              { dist: 2.25, size: 0.105, color: 0xa8a29e, speed: 1.6 },
-              { dist: 2.75, size: 0.092, color: 0x78716c, speed: 1.05 },
-            ];
-            galileanSpecs.forEach((m, mIdx) => {
-              const mPivot = new THREE.Group();
-              mPivot.rotation.y = mIdx * 1.6;
-              const mMesh = new THREE.Mesh(
-                new THREE.SphereGeometry(data.radius * m.size, 20, 20),
-                new THREE.MeshStandardMaterial({ color: m.color, roughness: 0.8 }),
-              );
-              mMesh.position.set(data.radius * m.dist, 0, 0);
-              mPivot.add(mMesh);
-              tiltGroup.add(mPivot);
-              moons.push({ pivot: mPivot, speed: m.speed });
-            });
-          }
-
-          if (data.id === 'saturn') {
-            const innerR = data.radius * 1.25;
-            const outerR = data.radius * 2.45;
-            const ringGeo = new THREE.RingGeometry(innerR, outerR, 128);
-            const posAttr = ringGeo.attributes.position;
-            const uvAttr = ringGeo.attributes.uv;
-            const v3 = new THREE.Vector3();
-            for (let i = 0; i < posAttr.count; i++) {
-              v3.fromBufferAttribute(posAttr, i);
-              uvAttr.setXY(i, (v3.length() - innerR) / (outerR - innerR), 0.5);
-            }
-            const ringMesh = new THREE.Mesh(
-              ringGeo,
-              new THREE.MeshStandardMaterial({
-                map: generateRingTexture(true),
-                side: THREE.DoubleSide,
-                transparent: true,
-                roughness: 0.7,
-                metalness: 0.05,
-              }),
-            );
-            ringMesh.rotation.x = Math.PI / 2;
-            tiltGroup.add(ringMesh);
-
-            const titanPivot = new THREE.Group();
-            const titanMesh = new THREE.Mesh(
-              new THREE.SphereGeometry(data.radius * 0.11, 24, 24),
-              new THREE.MeshStandardMaterial({ color: 0xf59e0b, roughness: 0.7 }),
-            );
-            titanMesh.position.set(data.radius * 2.95, 0, 0);
-            titanPivot.add(titanMesh);
-            tiltGroup.add(titanPivot);
-            moons.push({ pivot: titanPivot, speed: 1.35 });
-          }
-
-          if (data.id === 'uranus') {
-            const innerR = data.radius * 1.35;
-            const outerR = data.radius * 1.88;
-            const ringGeo = new THREE.RingGeometry(innerR, outerR, 96);
-            const posAttr = ringGeo.attributes.position;
-            const uvAttr = ringGeo.attributes.uv;
-            const v3 = new THREE.Vector3();
-            for (let i = 0; i < posAttr.count; i++) {
-              v3.fromBufferAttribute(posAttr, i);
-              uvAttr.setXY(i, (v3.length() - innerR) / (outerR - innerR), 0.5);
-            }
-            const ringMesh = new THREE.Mesh(
-              ringGeo,
-              new THREE.MeshBasicMaterial({
-                map: generateRingTexture(false),
-                side: THREE.DoubleSide,
-                transparent: true,
-                opacity: 0.7,
-              }),
-            );
-            ringMesh.rotation.x = Math.PI / 2;
-            tiltGroup.add(ringMesh);
-
-            const atmoMesh = new THREE.Mesh(
-              sphereGeoHigh,
-              createAtmosphereMaterial(0x67e8f9, 0.65, 3.2),
-            );
-            atmoMesh.scale.setScalar(data.radius * 1.09);
-            planetHolder.add(atmoMesh);
-          }
-
-          if (data.id === 'neptune') {
-            const atmoMesh = new THREE.Mesh(
-              sphereGeoHigh,
-              createAtmosphereMaterial(0x3b82f6, 0.8, 3.1),
-            );
-            atmoMesh.scale.setScalar(data.radius * 1.1);
-            planetHolder.add(atmoMesh);
-          }
+          const moonMaps = generatePlanetTextures('moon');
+          const moonPivot = new THREE.Group();
+          moonPivot.rotation.z = 0.08 + (idx % 3) * 0.04;
+          const moonMesh = new THREE.Mesh(
+            new THREE.SphereGeometry(data.radius * 0.2, 24, 24),
+            new THREE.MeshStandardMaterial({
+              map: moonMaps.map,
+              bumpMap: moonMaps.bumpMap,
+              bumpScale: 0.06,
+              roughness: 0.9,
+            }),
+          );
+          moonMesh.position.set(data.radius * 2.1, 0, 0);
+          moonPivot.add(moonMesh);
+          planetHolder.add(moonPivot);
+          moons.push({ pivot: moonPivot, speed: 1.8 + idx * 0.18 });
 
           const a = data.distance || 0;
           const e = data.eccentricity || 0.01;
@@ -4084,7 +4027,17 @@ export default function SolarSystem3D() {
         }
 
         mainMesh.userData = { planetId: data.id };
-        const initialAngle = idx === 0 ? 0 : idx * 1.15 + 0.4;
+        // Distribute the 8 planets across all 8 octants (360 degrees) of the Solar System
+        // using a golden-step permutation [0, 3, 6, 1, 4, 7, 2, 5] so consecutive planets are well-separated
+        const octantOrder = [0, 3, 6, 1, 4, 7, 2, 5];
+        const octantIdx = idx > 0 ? octantOrder[(idx - 1) % 8] : 0;
+        const baseAngle = idx === 0 ? 0 : (octantIdx / 8) * Math.PI * 2 + 0.15;
+        if (data.distance && data.distance > 0) {
+          const a = data.distance;
+          const e = data.eccentricity || 0.01;
+          const b = a * Math.sqrt(1 - e * e);
+          planetHolder.position.set(Math.cos(baseAngle) * a, 0, Math.sin(baseAngle) * b);
+        }
         planetObjects[data.id] = {
           data,
           orbitPivot,
@@ -4093,7 +4046,8 @@ export default function SolarSystem3D() {
           mainMesh,
           cloudMesh,
           moons,
-          angle: initialAngle,
+          angle: baseAngle,
+          baseAngle,
         };
       });
     }
@@ -4470,6 +4424,7 @@ export default function SolarSystem3D() {
           cloudMesh: null,
           moons: [],
           angle: 0,
+          baseAngle: 0,
         };
       });
     }
@@ -4501,11 +4456,12 @@ export default function SolarSystem3D() {
       const dummy = new THREE.Object3D();
       const c = new THREE.Color();
 
+      // Main Asteroid Belt placed cleanly between Atlantis (105) and Arcadia (164) at 125..139
       for (let i = 0; i < mainBeltCount; i++) {
-        const radius = 84 + Math.random() * 20;
+        const radius = 125 + Math.random() * 14;
         const angle = Math.random() * Math.PI * 2;
-        const ySpread = (Math.random() - 0.5) * 5.2 * Math.sin(Math.random() * Math.PI);
-        const scaleX = 0.14 + Math.pow(Math.random(), 2.4) * 0.55;
+        const ySpread = (Math.random() - 0.5) * 4.5 * Math.sin(Math.random() * Math.PI);
+        const scaleX = 0.14 + Math.pow(Math.random(), 2.4) * 0.5;
         const scaleY = scaleX * (0.6 + Math.random() * 0.7);
         const scaleZ = scaleX * (0.6 + Math.random() * 0.7);
 
@@ -4513,7 +4469,7 @@ export default function SolarSystem3D() {
           radius,
           angle,
           y: ySpread,
-          speed: (0.52 + Math.random() * 0.18) * (92 / radius),
+          speed: (0.52 + Math.random() * 0.18) * (132 / radius),
           rotX: Math.random() * Math.PI,
           rotY: Math.random() * Math.PI,
           rotSpeedX: (Math.random() - 0.5) * 0.02,
@@ -4547,8 +4503,9 @@ export default function SolarSystem3D() {
         kuiperCount,
       );
 
+      // Kuiper Belt placed cleanly outside Aether (268) at 296..356
       for (let i = 0; i < kuiperCount; i++) {
-        const radius = 262 + Math.random() * 65;
+        const radius = 296 + Math.random() * 60;
         const angle = Math.random() * Math.PI * 2;
         const ySpread = (Math.random() - 0.5) * 14.0;
         const s = 0.22 + Math.pow(Math.random(), 2.2) * 0.75;
@@ -4603,6 +4560,7 @@ export default function SolarSystem3D() {
       if (!pObj) return;
 
       focusedPlanetId = planetId;
+      setSelectedPlanetId(planetId);
 
       CELESTIAL_DATA.forEach((p) => {
         const btn = q(`dock-btn-${p.id}`);
@@ -4642,6 +4600,28 @@ export default function SolarSystem3D() {
       setTxt('hud-gravity', d.gravity);
       setTxt('hud-atmosphere', d.atmosphere);
 
+      // Update Sovereign Ownership badge inside Telemetry Panel
+      const ownerBadge = q('hud-owner-badge');
+      const registry = buildSovereignRegistry(playerOwnedPlanetId);
+      const sovInfo = registry[planetId];
+      if (ownerBadge) {
+        if (sovInfo) {
+          if (sovInfo.isPlayer) {
+            ownerBadge.textContent = '★ YOUR SOVEREIGN REALM (FULL CONTROL)';
+            ownerBadge.className =
+              'inline-block text-[9px] font-mono-tech uppercase px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 tracking-wider mb-1';
+          } else {
+            ownerBadge.textContent = `🔒 RULED BY: ${sovInfo.ownerName.toUpperCase()} (VIEW ONLY)`;
+            ownerBadge.className =
+              'inline-block text-[9px] font-mono-tech uppercase px-2 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/40 tracking-wider mb-1';
+          }
+        } else {
+          ownerBadge.textContent = 'CELESTIAL ANCHOR // UNCLAIMED';
+          ownerBadge.className =
+            'inline-block text-[9px] font-mono-tech uppercase px-2 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700 tracking-wider mb-1';
+        }
+      }
+
       if (!isCockpitMode) {
         const panel = q('telemetry-panel');
         if (panel) {
@@ -4672,19 +4652,32 @@ export default function SolarSystem3D() {
 
     function buildUIAndLabels() {
       if (!dock || !labelsContainer) return;
+      const registry = buildSovereignRegistry(playerOwnedPlanetId);
 
       CELESTIAL_DATA.forEach((planet) => {
+        const sov = registry[planet.id];
         const btn = document.createElement('button');
         btn.id = `dock-btn-${planet.id}`;
         btn.className =
-          'glass-pill px-2.5 py-1.5 rounded-xl flex items-center gap-1.5 text-xs font-medium text-slate-200 whitespace-nowrap';
-        btn.onclick = () => selectCelestialTarget(planet.id);
+          'glass-pill px-2.5 py-2 rounded-xl flex items-center justify-between gap-1.5 text-xs font-medium text-slate-200 w-full text-left';
+        btn.onclick = () => {
+          selectCelestialTarget(planet.id);
+          setSidePanelOpen(false);
+        };
         const kbdHtml =
           planet.keybind !== '' ? `<span class="kbd-badge">${planet.keybind}</span>` : '';
+        const crownHtml = sov?.isPlayer
+          ? `<span class="text-[9px] px-1 py-0.2 rounded bg-emerald-500/30 text-emerald-300 border border-emerald-400/50 font-mono-tech">YOURS</span>`
+          : '';
         btn.innerHTML = `
-          <span class="w-3 h-3 rounded-full flex-shrink-0" style="background: ${planet.badgeBg}; box-shadow: 0 0 8px ${planet.color}66;"></span>
-          <span>${planet.name.replace('The ', '')}</span>
-          ${kbdHtml}
+          <div class="flex items-center gap-2 min-w-0">
+            <span class="w-3 h-3 rounded-full flex-shrink-0" style="background: ${planet.badgeBg}; box-shadow: 0 0 8px ${planet.color}66;"></span>
+            <span class="truncate">${planet.name.replace('The ', '')}</span>
+          </div>
+          <div class="flex items-center gap-1 flex-shrink-0">
+            ${crownHtml}
+            ${kbdHtml}
+          </div>
         `;
         dock.appendChild(btn);
 
@@ -4695,9 +4688,15 @@ export default function SolarSystem3D() {
           e.stopPropagation();
           selectCelestialTarget(planet.id);
         };
+        const ownerTag = sov
+          ? sov.isPlayer
+            ? `<span class="text-[8px] px-1 rounded bg-emerald-500/25 text-emerald-300 border border-emerald-400/40">YOUR REALM</span>`
+            : `<span class="text-[8px] px-1 rounded bg-slate-800/90 text-slate-400">${sov.ownerName}</span>`
+          : '';
         lbl.innerHTML = `
           <div class="px-2 py-0.5 rounded-md bg-slate-950/85 border border-slate-700/70 backdrop-blur-md text-[11px] font-mono-tech font-medium text-slate-100 tracking-wide whitespace-nowrap shadow-lg hover:border-sky-400 flex items-center gap-1.5">
             <span>${planet.name.replace('The ', '')}</span>
+            ${ownerTag}
             ${planet.keybind !== '' ? `<span class="text-[9px] text-sky-400">[${planet.keybind}]</span>` : ''}
           </div>
           <div class="label-dot" style="background-color: ${planet.color};"></div>
@@ -4713,13 +4712,13 @@ export default function SolarSystem3D() {
       if (btn) btn.classList.toggle('active-amber', isAutopilot);
       if (badge) {
         if (isAutopilot) {
-          badge.textContent = 'AUTOPILOT LOCK';
+          badge.textContent = 'AUTO';
           badge.className =
-            'text-[10px] font-mono-tech px-1.5 py-0.5 rounded bg-amber-500/25 text-amber-300 border border-amber-400/50';
+            'text-[8px] font-mono-tech px-1 py-0.5 rounded bg-amber-500/25 text-amber-300 border border-amber-400/50';
         } else {
-          badge.textContent = 'MANUAL 6DOF';
+          badge.textContent = '6DOF';
           badge.className =
-            'text-[10px] font-mono-tech px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40';
+            'text-[8px] font-mono-tech px-1 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40';
         }
       }
     }
@@ -4784,7 +4783,7 @@ export default function SolarSystem3D() {
         shipState.velocity.set(0, 0, 0);
         shipState.angularVelocity.set(0, 0, 0);
 
-        if (!focusedPlanetId) focusedPlanetId = 'earth';
+        if (!focusedPlanetId) focusedPlanetId = playerOwnedPlanetId || 'gaia';
         selectCelestialTarget(focusedPlanetId);
 
         cockpitHud?.classList.remove('hidden');
@@ -4851,8 +4850,8 @@ export default function SolarSystem3D() {
 
     function toggleKeyboardHelp() {
       showKeyboardHelp = !showKeyboardHelp;
-      q('keyboard-help-panel')?.classList.toggle('hidden', !showKeyboardHelp);
-      q('btn-help')?.classList.toggle('active', showKeyboardHelp);
+      setSidePanelTab('keys');
+      setSidePanelOpen((prev) => !prev);
     }
 
     function setCameraPreset(mode: 'overview' | 'topdown') {
@@ -4894,9 +4893,20 @@ export default function SolarSystem3D() {
     }
 
     function toggleLabels() {
-      showLabels = !showLabels;
-      if (labelsContainer) labelsContainer.style.display = showLabels ? 'block' : 'none';
-      q('btn-labels')?.classList.toggle('active', showLabels);
+      const next = !showLabelsRef.current;
+      showLabelsRef.current = next;
+      setLabelsEnabled(next);
+      try {
+        localStorage.setItem('sovereign_labels_enabled_v1', String(next));
+      } catch {
+        // ignore storage errors
+      }
+      if (labelsContainer) {
+        labelsContainer.style.display = next ? 'block' : 'none';
+      }
+      Object.values(labelElements).forEach((lbl) => {
+        lbl.style.display = next ? 'flex' : 'none';
+      });
     }
 
     function toggleAsteroids() {
@@ -4928,15 +4938,32 @@ export default function SolarSystem3D() {
       onTimeSliderChange(String(nextVal));
     }
 
-    function enterEarthAtmosphere() {
+    function enterEarthAtmosphere(targetPlanetId?: string) {
       if (isCockpitMode) toggleFlightMode();
-      selectCelestialTarget('earth', 1.15);
+      const candidate = targetPlanetId || focusedPlanetId || playerOwnedPlanetId || 'gaia';
+      const resolvedId = (ANCIENT_PLANET_IDS as readonly string[]).includes(candidate)
+        ? candidate
+        : playerOwnedPlanetId || 'gaia';
+      selectCelestialTarget(resolvedId, 1.15);
       cameraTransition.duration = 0.85;
       setDivingToEarth(true);
       setTimeout(() => {
         setDivingToEarth(false);
-        setInEarthBase(true);
+        setActiveSurfacePlanetId(resolvedId);
       }, 850);
+    }
+
+    function setFlightKey(code: string, active: boolean) {
+      keyState[code] = active;
+      if (
+        active &&
+        ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyW', 'KeyS', 'KeyA', 'KeyD'].includes(
+          code,
+        )
+      ) {
+        isAutopilot = false;
+        updateAutopilotUI();
+      }
     }
 
     actionsRef.current = {
@@ -4958,6 +4985,7 @@ export default function SolarSystem3D() {
       zeroShipVelocity,
       toggleInvertPitch,
       enterEarthAtmosphere,
+      setFlightKey,
     };
 
     /* --- 11. Keyboard & Pointer Event Handlers --- */
@@ -4988,7 +5016,6 @@ export default function SolarSystem3D() {
         else triggerSolarFlareCME(true);
       } else if (code === 'KeyH') toggleKeyboardHelp();
       else if (code === 'KeyO') toggleOrbits();
-      else if (code === 'KeyL') toggleLabels();
       else if (code === 'KeyB') toggleAsteroids();
       else if (code === 'KeyP') togglePause();
       else if (code === 'KeyT') toggleTourMode();
@@ -5003,14 +5030,14 @@ export default function SolarSystem3D() {
       else if (code === 'Period') adjustTimeSpeed(1);
       else if (code === 'Escape') releaseFocus();
       else if (code === 'Digit0') selectCelestialTarget('sun');
-      else if (code === 'Digit1') selectCelestialTarget('mercury');
-      else if (code === 'Digit2') selectCelestialTarget('venus');
-      else if (code === 'Digit3') selectCelestialTarget('earth');
-      else if (code === 'Digit4') selectCelestialTarget('mars');
-      else if (code === 'Digit5') selectCelestialTarget('jupiter');
-      else if (code === 'Digit6') selectCelestialTarget('saturn');
-      else if (code === 'Digit7') selectCelestialTarget('uranus');
-      else if (code === 'Digit8') selectCelestialTarget('neptune');
+      else if (code === 'Digit1') selectCelestialTarget('gaia');
+      else if (code === 'Digit2') selectCelestialTarget('olympus');
+      else if (code === 'Digit3') selectCelestialTarget('elysium');
+      else if (code === 'Digit4') selectCelestialTarget('atlantis');
+      else if (code === 'Digit5') selectCelestialTarget('arcadia');
+      else if (code === 'Digit6') selectCelestialTarget('hyperborea');
+      else if (code === 'Digit7') selectCelestialTarget('avalon');
+      else if (code === 'Digit8') selectCelestialTarget('aether');
       else if (code === 'Digit9') {
         if (isCockpitMode) toggleFlightMode();
         setCameraPreset('overview');
@@ -5021,12 +5048,37 @@ export default function SolarSystem3D() {
       keyState[e.code] = false;
     }
 
+    let isCockpitCanvasDragging = false;
+    let lastCockpitPointer = { x: 0, y: 0 };
+
     function onPointerDown(e: PointerEvent) {
       pointerDownPos.x = e.clientX;
       pointerDownPos.y = e.clientY;
+      if (isCockpitMode) {
+        isCockpitCanvasDragging = true;
+        lastCockpitPointer.x = e.clientX;
+        lastCockpitPointer.y = e.clientY;
+      }
+    }
+
+    function onPointerMove(e: PointerEvent) {
+      if (!isCockpitMode || !isCockpitCanvasDragging) return;
+      const dx = e.clientX - lastCockpitPointer.x;
+      const dy = e.clientY - lastCockpitPointer.y;
+      lastCockpitPointer.x = e.clientX;
+      lastCockpitPointer.y = e.clientY;
+
+      if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5) {
+        const pitchSign = invertPitch ? -1 : 1;
+        shipState.angularVelocity.y -= dx * 0.0045;
+        shipState.angularVelocity.x -= dy * 0.0045 * pitchSign;
+        isAutopilot = false;
+        updateAutopilotUI();
+      }
     }
 
     function onPointerUp(e: PointerEvent) {
+      isCockpitCanvasDragging = false;
       const dx = e.clientX - pointerDownPos.x;
       const dy = e.clientY - pointerDownPos.y;
       if (Math.sqrt(dx * dx + dy * dy) > 6) return;
@@ -5085,6 +5137,17 @@ export default function SolarSystem3D() {
         isAutopilot = false;
         updateAutopilotUI();
       }
+
+      // Virtual Touch Flight Stick input (smooth proportional pitch & yaw)
+      const stickX = cockpitStickRef.current.x;
+      const stickY = cockpitStickRef.current.y;
+      if (Math.abs(stickX) > 0.04 || Math.abs(stickY) > 0.04) {
+        shipState.angularVelocity.y -= stickX * rotAccel * 1.15;
+        shipState.angularVelocity.x -= stickY * rotAccel * pitchSign * 1.15;
+        isAutopilot = false;
+        updateAutopilotUI();
+      }
+
       if (keyState['KeyQ']) {
         shipState.angularVelocity.z += rotAccel * 1.25;
       }
@@ -5211,8 +5274,8 @@ export default function SolarSystem3D() {
       const speedReadoutEl = q('cockpit-speed-readout');
       if (speedReadoutEl) {
         speedReadoutEl.innerHTML = shipState.isWarping
-          ? `${(speedUnits * 0.042).toFixed(2)} <span class="text-xs font-mono-tech text-fuchsia-400">c WARP</span>`
-          : `${displayKms} <span class="text-xs font-mono-tech text-sky-400">km/s</span>`;
+          ? `${(speedUnits * 0.042).toFixed(2)} <span class="text-[9px] font-mono-tech text-fuchsia-400">c</span>`
+          : `${displayKms} <span class="text-[9px] font-mono-tech text-sky-400">km/s</span>`;
       }
 
       shipState.throttleDisplay +=
@@ -5231,17 +5294,17 @@ export default function SolarSystem3D() {
         const badge = q('flight-status-badge');
         if (badge) {
           if (shipState.isWarping) {
-            badge.textContent = 'WARP DRIVE ACTIVE';
+            badge.textContent = 'WARP';
             badge.className =
-              'text-[10px] font-mono-tech px-1.5 py-0.5 rounded bg-fuchsia-500/30 text-fuchsia-200 border border-fuchsia-400/60';
+              'text-[8px] font-mono-tech px-1 py-0.5 rounded bg-fuchsia-500/30 text-fuchsia-200 border border-fuchsia-400/60';
           } else if (keyState['ShiftLeft'] || keyState['ShiftRight']) {
-            badge.textContent = 'AFTERBURNER';
+            badge.textContent = 'BOOST';
             badge.className =
-              'text-[10px] font-mono-tech px-1.5 py-0.5 rounded bg-amber-500/25 text-amber-300 border border-amber-400/50';
+              'text-[8px] font-mono-tech px-1 py-0.5 rounded bg-amber-500/25 text-amber-300 border border-amber-400/50';
           } else {
-            badge.textContent = 'MANUAL 6DOF';
+            badge.textContent = '6DOF';
             badge.className =
-              'text-[10px] font-mono-tech px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40';
+              'text-[8px] font-mono-tech px-1 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40';
           }
         }
       }
@@ -5350,6 +5413,7 @@ export default function SolarSystem3D() {
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup', onKeyUp);
     renderer.domElement.addEventListener('pointerdown', onPointerDown);
+    renderer.domElement.addEventListener('pointermove', onPointerMove);
     renderer.domElement.addEventListener('pointerup', onPointerUp);
 
     setCameraPreset('overview');
@@ -5446,12 +5510,20 @@ export default function SolarSystem3D() {
         planetObjects[focusedPlanetId].planetHolder.getWorldPosition(prevPlanetWorldPos);
       }
 
-      CELESTIAL_DATA.filter((d) => !d.isDeepSpace).forEach((data) => {
+      if (!isPaused && timeMultiplier > 0) {
+        systemOrbitPhase += 0.14 * simDelta;
+      }
+
+      CELESTIAL_DATA.filter((d) => !d.isDeepSpace).forEach((data, idx) => {
         const obj = planetObjects[data.id];
         if (!obj) return;
 
         if (data.distance && data.distance > 0 && data.orbitalSpeed) {
-          obj.angle += data.orbitalSpeed * 0.22 * simDelta;
+          // Harmonic 360-degree orbital progression: all 8 planets orbit continuously while staying spread across all 8 octants around the Sun
+          obj.angle =
+            obj.baseAngle +
+            systemOrbitPhase +
+            Math.sin(systemOrbitPhase * (0.65 + idx * 0.12) + idx * 1.3) * 0.18;
           const a = data.distance;
           const e = data.eccentricity || 0.01;
           const b = a * Math.sqrt(1 - e * e);
@@ -5540,7 +5612,10 @@ export default function SolarSystem3D() {
         controls.update();
       }
 
-      if (showLabels) {
+      if (showLabelsRef.current) {
+        if (labelsContainer.style.display === 'none') {
+          labelsContainer.style.display = 'block';
+        }
         const halfW = window.innerWidth / 2;
         const halfH = window.innerHeight / 2;
 
@@ -5549,6 +5624,7 @@ export default function SolarSystem3D() {
           const lbl = labelElements[data.id];
           if (!obj || !lbl) return;
 
+          lbl.style.display = 'flex';
           obj.planetHolder.getWorldPosition(tempVec);
           tempVec.y += data.radius * 1.35;
           tempVec.project(camera);
@@ -5565,6 +5641,10 @@ export default function SolarSystem3D() {
             lbl.style.pointerEvents = 'auto';
           }
         });
+      } else {
+        if (labelsContainer.style.display !== 'none') {
+          labelsContainer.style.display = 'none';
+        }
       }
 
       renderer.render(scene, camera);
@@ -5580,18 +5660,141 @@ export default function SolarSystem3D() {
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
       renderer.domElement.removeEventListener('pointerdown', onPointerDown);
+      renderer.domElement.removeEventListener('pointermove', onPointerMove);
       renderer.domElement.removeEventListener('pointerup', onPointerUp);
       controls.dispose();
       renderer.dispose();
     };
-  }, [inEarthBase]);
+  }, [activeSurfacePlanetId, playerOwnedPlanetId]);
 
-  if (inEarthBase) {
-    return <EarthBase3DView onExitToSpace={() => setInEarthBase(false)} />;
+  const sovereignRegistry = buildSovereignRegistry(playerOwnedPlanetId);
+
+  if (activeSurfacePlanetId) {
+    const pData = CELESTIAL_DATA.find((c) => c.id === activeSurfacePlanetId);
+    const sovInfo = sovereignRegistry[activeSurfacePlanetId] || {
+      ownerName: 'Commander (You)',
+      isPlayer: true,
+    };
+    return (
+      <EarthBase3DView
+        onExitToSpace={() => setActiveSurfacePlanetId(null)}
+        planetId={activeSurfacePlanetId}
+        planetName={pData?.name || 'Gaia'}
+        ownerName={sovInfo.ownerName}
+        isOwner={sovInfo.isPlayer}
+      />
+    );
   }
+
+  const isSelectedPlanetAncient = (ANCIENT_PLANET_IDS as readonly string[]).includes(
+    selectedPlanetId,
+  );
+  const isSelectedPlanetOwned = selectedPlanetId === playerOwnedPlanetId;
+  const selectedPlanetObj = CELESTIAL_DATA.find((c) => c.id === selectedPlanetId);
+  const ownedPlanetObj = CELESTIAL_DATA.find((c) => c.id === playerOwnedPlanetId);
 
   return (
     <div ref={rootRef} className="relative h-screen w-screen overflow-hidden bg-[#02040a] select-none">
+      {/* SOVEREIGN REALM CLAIM & REGISTRY MODAL (1 PLAYER = 1 PLANET) */}
+      {showClaimModal && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-3 sm:p-6 bg-slate-950/85 backdrop-blur-xl">
+          <div className="glass-panel max-w-2xl w-full rounded-3xl p-5 sm:p-6 border border-emerald-500/40 shadow-[0_0_50px_rgba(16,185,129,0.25)] max-h-[90vh] flex flex-col">
+            <div className="flex items-start justify-between gap-3 pb-3 border-b border-slate-800">
+              <div>
+                <div className="text-[10px] font-mono-tech uppercase tracking-widest text-emerald-400">
+                  Sovereign Pact // 1 Player = 1 Ancient Earth
+                </div>
+                <h2 className="font-display text-xl sm:text-2xl font-bold text-white mt-0.5">
+                  Claim Your Sovereign Home Planet
+                </h2>
+                <p className="text-xs text-slate-400 mt-1">
+                  All 8 worlds are living Earth-like realms with oceans, continents, and clouds. You
+                  hold <strong className="text-emerald-300">Full Sovereign Command</strong> on your
+                  chosen planet and <strong className="text-rose-300">Spectator View-Only</strong>{' '}
+                  access on the other 7 rival realms.
+                </p>
+              </div>
+              <button
+                onClick={() => setShowClaimModal(false)}
+                className="glass-pill px-2.5 py-1 rounded-xl text-xs font-mono-tech text-slate-300 hover:text-white"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 my-4 overflow-y-auto thin-scrollbar pr-1">
+              {CELESTIAL_DATA.filter((p) =>
+                (ANCIENT_PLANET_IDS as readonly string[]).includes(p.id),
+              ).map((planet) => {
+                const isMine = planet.id === playerOwnedPlanetId;
+                const rivalName = RIVAL_SOVEREIGNS[planet.id];
+                return (
+                  <div
+                    key={planet.id}
+                    className={`rounded-2xl p-3 border transition-all flex flex-col justify-between gap-2 ${
+                      isMine
+                        ? 'bg-emerald-950/40 border-emerald-400/70 shadow-[0_0_20px_rgba(16,185,129,0.2)]'
+                        : 'bg-slate-900/75 border-slate-800 hover:border-slate-700'
+                    }`}
+                  >
+                    <div>
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <span
+                            className="w-3.5 h-3.5 rounded-full flex-shrink-0"
+                            style={{
+                              background: planet.badgeBg,
+                              boxShadow: `0 0 10px ${planet.color}88`,
+                            }}
+                          />
+                          <span className="font-display font-bold text-sm sm:text-base text-white">
+                            {planet.name}
+                          </span>
+                        </div>
+                        {isMine ? (
+                          <span className="text-[9px] font-mono-tech uppercase px-2 py-0.5 rounded bg-emerald-500/25 text-emerald-300 border border-emerald-400/50">
+                            ★ Your Realm
+                          </span>
+                        ) : (
+                          <span className="text-[9px] font-mono-tech uppercase px-2 py-0.5 rounded bg-slate-800 text-slate-400">
+                            Ruler: {rivalName}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-slate-400 mt-1.5 line-clamp-2">
+                        {planet.description}
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2 pt-1">
+                      <button
+                        onClick={() => handleClaimSovereignPlanet(planet.id)}
+                        className={`flex-1 py-1.5 px-3 rounded-xl text-xs font-semibold transition-all ${
+                          isMine
+                            ? 'bg-emerald-500/25 text-emerald-200 border border-emerald-400/50'
+                            : 'glass-pill text-slate-200 hover:text-emerald-300'
+                        }`}
+                      >
+                        {isMine ? 'Active Sovereign Seat' : `Claim ${planet.name}`}
+                      </button>
+                      <button
+                        onClick={() => {
+                          setShowClaimModal(false);
+                          actionsRef.current?.enterEarthAtmosphere(planet.id);
+                        }}
+                        className="glass-pill py-1.5 px-2.5 rounded-xl text-xs font-mono-tech text-sky-300 hover:text-white"
+                      >
+                        {isMine ? 'Enter Base' : 'Spectate'}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Atmospheric Re-Entry Transition Overlay */}
       {divingToEarth && (
         <div className="fixed inset-0 z-50 pointer-events-none flex flex-col items-center justify-center bg-sky-400/25 backdrop-blur-md transition-all duration-700">
@@ -5599,10 +5802,12 @@ export default function SolarSystem3D() {
             <Globe2 className="w-6 h-6 text-emerald-300 animate-spin" />
             <div>
               <div className="font-display text-base sm:text-lg font-bold tracking-widest uppercase text-white">
-                Entering Earth Atmosphere
+                Entering {selectedPlanetObj?.name || 'Gaia'} Atmosphere
               </div>
               <div className="font-mono-tech text-xs text-emerald-300 uppercase">
-                Landing at Sector 01 Starter Base...
+                {isSelectedPlanetOwned
+                  ? 'Landing at Your Sovereign Command Base...'
+                  : `Entering Spectator Orbit (${RIVAL_SOVEREIGNS[selectedPlanetId] || 'Rival Sovereign'})...`}
               </div>
             </div>
           </div>
@@ -5625,7 +5830,7 @@ export default function SolarSystem3D() {
           id="loading-status"
           className="font-mono-tech text-xs sm:text-sm text-slate-400 tracking-widest uppercase mb-6"
         >
-          Synthesizing Planetary Surfaces, Solar Flares &amp; Deep-Space Nebulae...
+          Synthesizing 8 Ancient Earth Realms, Solar Flares &amp; Nebulae...
         </p>
         <div className="w-64 sm:w-80 h-1.5 bg-slate-800/80 rounded-full overflow-hidden border border-slate-700/50">
           <div
@@ -5641,15 +5846,18 @@ export default function SolarSystem3D() {
       {/* 3D Floating HTML Labels Container */}
       <div
         id="labels-container"
-        className="fixed inset-0 pointer-events-none z-10 overflow-hidden"
+        style={{ display: labelsEnabled ? 'block' : 'none' }}
+        className={`fixed inset-0 pointer-events-none z-10 overflow-hidden ${
+          labelsEnabled ? '' : 'hidden'
+        }`}
       />
 
-      {/* SCI-FI SPACESHIP COCKPIT HUD OVERLAY */}
+      {/* SCI-FI SPACESHIP COCKPIT HUD OVERLAY (MOBILE, TABLET & DESKTOP READY) */}
       <div
         id="cockpit-hud"
         className="fixed inset-0 z-[15] pointer-events-none hidden cockpit-vignette transition-opacity duration-300"
       >
-        <svg className="w-full h-full opacity-80" viewBox="0 0 1920 1080" preserveAspectRatio="none">
+        <svg className="w-full h-full opacity-75" viewBox="0 0 1920 1080" preserveAspectRatio="none">
           <defs>
             <linearGradient id="strutGrad" x1="0%" y1="0%" x2="100%" y2="100%">
               <stop offset="0%" stopColor="#0f172a" stopOpacity="0.92" />
@@ -5667,21 +5875,21 @@ export default function SolarSystem3D() {
             stroke="#1e293b"
             strokeWidth="2"
           />
-          <path d="M0,90 L300,42 L135,920 L0,1080 Z" fill="url(#strutGrad)" opacity="0.45" />
-          <path d="M1920,90 L1620,42 L1785,920 L1920,1080 Z" fill="url(#strutGrad)" opacity="0.45" />
+          <path d="M0,90 L300,42 L135,920 L0,1080 Z" fill="url(#strutGrad)" opacity="0.35" />
+          <path d="M1920,90 L1620,42 L1785,920 L1920,1080 Z" fill="url(#strutGrad)" opacity="0.35" />
           <polyline
             points="300,42 135,920 420,1030"
             fill="none"
             stroke="#38bdf8"
             strokeWidth="1.5"
-            strokeOpacity="0.35"
+            strokeOpacity="0.3"
           />
           <polyline
             points="1620,42 1785,920 1500,1030"
             fill="none"
             stroke="#38bdf8"
             strokeWidth="1.5"
-            strokeOpacity="0.35"
+            strokeOpacity="0.3"
           />
           <path
             d="M0,1080 L135,920 L420,1010 L1500,1010 L1785,920 L1920,1080 Z"
@@ -5694,7 +5902,7 @@ export default function SolarSystem3D() {
 
         {/* Central Pitch Ladder, Roll Horizon & Reticle */}
         <div className="fixed inset-0 flex items-center justify-center">
-          <div className="relative w-80 h-80 flex items-center justify-center">
+          <div className="relative w-56 h-56 sm:w-80 sm:h-80 flex items-center justify-center">
             <svg className="w-full h-full opacity-45" viewBox="0 0 200 200">
               <circle
                 cx="100"
@@ -5716,7 +5924,7 @@ export default function SolarSystem3D() {
               id="hud-horizon-group"
               className="absolute inset-0 flex items-center justify-center transition-transform duration-75"
             >
-              <svg className="w-64 h-64" viewBox="0 0 200 200">
+              <svg className="w-44 h-44 sm:w-64 sm:h-64" viewBox="0 0 200 200">
                 <line
                   x1="25"
                   y1="100"
@@ -5769,7 +5977,7 @@ export default function SolarSystem3D() {
           className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-20 h-20 border border-amber-400/80 rounded-lg flex flex-col items-center justify-between p-1 shadow-[0_0_20px_rgba(245,158,11,0.25)] transition-opacity duration-150"
         >
           <div className="w-full flex justify-between text-[9px] font-mono-tech text-amber-300 uppercase px-1 bg-slate-950/80 rounded">
-            <span id="cockpit-lock-name">EARTH</span>
+            <span id="cockpit-lock-name">GAIA</span>
             <span>LOCK</span>
           </div>
           <div
@@ -5780,115 +5988,278 @@ export default function SolarSystem3D() {
           </div>
         </div>
 
-        {/* Left Cockpit Telemetry Module */}
-        <div className="fixed bottom-28 left-4 sm:left-8 w-64 sm:w-72 glass-panel rounded-2xl p-3.5 border-l-2 border-l-sky-400 pointer-events-auto">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[10px] font-mono-tech uppercase tracking-widest text-sky-400 font-semibold">
-              6DOF Flight Propulsion
-            </span>
-            <span
-              id="flight-status-badge"
-              className="text-[10px] font-mono-tech px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"
-            >
-              SUBLIGHT
-            </span>
-          </div>
-
-          <div className="flex items-baseline justify-between mb-2">
-            <div>
-              <div className="text-[10px] font-mono-tech text-slate-400">REL. VELOCITY</div>
+        {/* UNIFIED ULTRA-COMPACT COCKPIT BAR (TOP-CENTER) */}
+        <div className="fixed top-12 left-1/2 -translate-x-1/2 max-w-[96vw] w-auto glass-panel rounded-xl px-2 py-1 border border-sky-500/35 pointer-events-auto shadow-lg">
+          <div className="flex items-center gap-1.5 sm:gap-2 overflow-x-auto no-scrollbar whitespace-nowrap">
+            {/* Speed & Flight Status */}
+            <div className="flex items-center gap-1.5 pr-1.5 border-r border-slate-800/80">
+              <span
+                id="flight-status-badge"
+                className="text-[8px] font-mono-tech px-1 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"
+              >
+                SUBLIGHT
+              </span>
               <div
                 id="cockpit-speed-readout"
-                className="font-display text-xl sm:text-2xl font-bold text-white"
+                className="font-display text-xs sm:text-sm font-bold text-white leading-none"
               >
-                0.0 <span className="text-xs font-mono-tech text-sky-400">km/s</span>
+                0.0 <span className="text-[9px] font-mono-tech text-sky-400">km/s</span>
               </div>
             </div>
-            <div className="text-right">
-              <div className="text-[10px] font-mono-tech text-slate-400">PITCH INVERT</div>
+
+            {/* Compact Thrust & Warp Bars */}
+            <div className="hidden xs:flex flex-col gap-0.5 w-14 sm:w-20 pr-1.5 border-r border-slate-800/80">
+              <div className="flex items-center gap-1">
+                <span className="text-[7px] font-mono-tech text-slate-400">T</span>
+                <div className="flex-1 h-1 bg-slate-900 rounded-full overflow-hidden">
+                  <div
+                    id="cockpit-throttle-bar"
+                    className="h-full bg-gradient-to-r from-sky-500 to-amber-400 w-0"
+                  />
+                </div>
+                <span id="cockpit-throttle-pct" className="hidden">0%</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <span className="text-[7px] font-mono-tech text-slate-400">W</span>
+                <div className="flex-1 h-1 bg-slate-900 rounded-full overflow-hidden">
+                  <div
+                    id="cockpit-warp-bar"
+                    className="h-full bg-gradient-to-r from-indigo-500 to-pink-400 w-full"
+                  />
+                </div>
+                <span id="cockpit-warp-pct" className="hidden">100%</span>
+              </div>
+            </div>
+
+            {/* Target Selector */}
+            <div className="flex items-center gap-1 pr-1.5 border-r border-slate-800/80">
               <button
-                onClick={() => actionsRef.current?.toggleInvertPitch()}
-                className="text-[11px] font-mono-tech text-slate-300 hover:text-sky-300"
+                onClick={() => actionsRef.current?.stepPlanet(-1)}
+                className="glass-pill px-1.5 py-0.5 rounded-md text-[9px] font-mono-tech text-slate-200"
+                title="Previous Target"
               >
-                <span id="pitch-invert-label">STD</span> <span className="kbd-badge">I</span>
+                ◀
+              </button>
+              <div className="bg-slate-900/85 border border-slate-800 rounded-md px-1.5 py-0.5 min-w-[72px] sm:min-w-[90px] text-center">
+                <div
+                  id="nav-target-name"
+                  className="font-display text-[10px] sm:text-xs font-bold text-white truncate leading-tight"
+                >
+                  Gaia
+                </div>
+                <div className="flex items-center justify-center gap-1 text-[7px] font-mono-tech leading-none">
+                  <span id="nav-target-type" className="hidden">REALM</span>
+                  <span id="nav-target-dist" className="text-sky-300">0.00 AU</span>
+                </div>
+              </div>
+              <button
+                onClick={() => actionsRef.current?.stepPlanet(1)}
+                className="glass-pill px-1.5 py-0.5 rounded-md text-[9px] font-mono-tech text-slate-200"
+                title="Next Target"
+              >
+                ▶
               </button>
             </div>
-          </div>
 
-          <div className="mb-2.5">
-            <div className="flex justify-between text-[10px] font-mono-tech text-slate-400 mb-1">
-              <span>THRUST OUTPUT [W/S | SHIFT]</span>
-              <span id="cockpit-throttle-pct" className="text-sky-300">
-                0%
-              </span>
-            </div>
-            <div className="w-full h-2 bg-slate-900 rounded-full overflow-hidden border border-slate-700/70">
-              <div
-                id="cockpit-throttle-bar"
-                className="h-full bg-gradient-to-r from-sky-500 via-cyan-400 to-amber-400 w-0 transition-all duration-75"
-              />
-            </div>
-          </div>
-
-          <div>
-            <div className="flex justify-between text-[10px] font-mono-tech text-slate-400 mb-1">
-              <span>WARP CAPACITOR [HOLD SPACE]</span>
-              <span id="cockpit-warp-pct" className="text-fuchsia-300">
-                100%
-              </span>
-            </div>
-            <div className="w-full h-2 bg-slate-900 rounded-full overflow-hidden border border-slate-700/70">
-              <div
-                id="cockpit-warp-bar"
-                className="h-full bg-gradient-to-r from-indigo-500 via-fuchsia-500 to-pink-400 w-full transition-all duration-75"
-              />
+            {/* Small Action Buttons */}
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => actionsRef.current?.toggleAutopilot()}
+                id="btn-autopilot"
+                className="glass-pill py-1 px-2 rounded-md text-[9px] sm:text-[10px] font-semibold text-amber-300 border-amber-500/40"
+              >
+                🚀 Auto
+              </button>
+              <button
+                onClick={() => actionsRef.current?.zeroShipVelocity()}
+                className="glass-pill py-1 px-1.5 rounded-md text-[9px] sm:text-[10px] font-medium text-slate-300"
+                title="Full All-Stop Brake"
+              >
+                Stop
+              </button>
+              {isSelectedPlanetAncient && (
+                <button
+                  onClick={() => actionsRef.current?.enterEarthAtmosphere(selectedPlanetId)}
+                  className="glass-pill py-1 px-1.5 rounded-md text-[9px] sm:text-[10px] font-semibold text-emerald-300 border-emerald-400/50"
+                >
+                  Land
+                </button>
+              )}
+              <button
+                onClick={() => actionsRef.current?.toggleInvertPitch()}
+                className="glass-pill py-1 px-1.5 rounded-md text-[9px] font-mono-tech text-slate-300"
+                title="Invert Pitch"
+              >
+                <span id="pitch-invert-label">STD</span>
+              </button>
+              <button
+                onClick={() => actionsRef.current?.toggleFlightMode()}
+                className="glass-pill py-1 px-2 rounded-md text-[9px] sm:text-[10px] font-semibold text-rose-300 border border-rose-500/40"
+              >
+                Exit
+              </button>
             </div>
           </div>
         </div>
 
-        {/* Right Cockpit Navigation & Autopilot Module */}
-        <div className="fixed bottom-28 right-4 sm:right-8 w-64 sm:w-72 glass-panel rounded-2xl p-3.5 border-r-2 border-r-amber-400 pointer-events-auto">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[10px] font-mono-tech uppercase tracking-widest text-amber-400 font-semibold">
-              Nav Computer &amp; Autopilot
-            </span>
-            <span className="text-[10px] font-mono-tech text-slate-400">[ [ / ] ] CYCLE</span>
+        {/* BOTTOM-LEFT VIRTUAL TOUCH FLIGHT STICK (COMPACT) */}
+        <div className="fixed bottom-3 left-3 sm:bottom-5 sm:left-5 pointer-events-auto flex flex-col items-center gap-0.5 select-none touch-none">
+          <div
+            onPointerDown={(e) => {
+              e.stopPropagation();
+              e.currentTarget.setPointerCapture(e.pointerId);
+              cockpitStickTouchId.current = e.pointerId;
+              const rect = e.currentTarget.getBoundingClientRect();
+              cockpitStickCenter.current = {
+                x: rect.left + rect.width / 2,
+                y: rect.top + rect.height / 2,
+              };
+              const maxR = rect.width * 0.38;
+              const dx = e.clientX - cockpitStickCenter.current.x;
+              const dy = e.clientY - cockpitStickCenter.current.y;
+              const dist = Math.hypot(dx, dy);
+              const clampedDist = Math.min(dist, maxR);
+              const angle = Math.atan2(dy, dx);
+              const nx = maxR > 0 ? (Math.cos(angle) * clampedDist) / maxR : 0;
+              const ny = maxR > 0 ? (Math.sin(angle) * clampedDist) / maxR : 0;
+              cockpitStickRef.current = { x: nx, y: ny };
+              setCockpitStickUi({ x: nx * 22, y: ny * 22 });
+            }}
+            onPointerMove={(e) => {
+              if (cockpitStickTouchId.current !== e.pointerId) return;
+              e.stopPropagation();
+              const rect = e.currentTarget.getBoundingClientRect();
+              const maxR = rect.width * 0.38;
+              const dx = e.clientX - cockpitStickCenter.current.x;
+              const dy = e.clientY - cockpitStickCenter.current.y;
+              const dist = Math.hypot(dx, dy);
+              const clampedDist = Math.min(dist, maxR);
+              const angle = Math.atan2(dy, dx);
+              const nx = maxR > 0 ? (Math.cos(angle) * clampedDist) / maxR : 0;
+              const ny = maxR > 0 ? (Math.sin(angle) * clampedDist) / maxR : 0;
+              cockpitStickRef.current = { x: nx, y: ny };
+              setCockpitStickUi({ x: nx * 22, y: ny * 22 });
+            }}
+            onPointerUp={(e) => {
+              if (cockpitStickTouchId.current !== e.pointerId) return;
+              e.stopPropagation();
+              cockpitStickTouchId.current = null;
+              cockpitStickRef.current = { x: 0, y: 0 };
+              setCockpitStickUi({ x: 0, y: 0 });
+            }}
+            onPointerCancel={() => {
+              cockpitStickTouchId.current = null;
+              cockpitStickRef.current = { x: 0, y: 0 };
+              setCockpitStickUi({ x: 0, y: 0 });
+            }}
+            className="relative w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-slate-950/75 border border-sky-400/50 shadow-[0_0_15px_rgba(56,189,248,0.2)] flex items-center justify-center cursor-grab active:cursor-grabbing"
+          >
+            <div className="absolute inset-2 rounded-full border border-dashed border-sky-400/25 pointer-events-none" />
+            <div
+              style={{
+                transform: `translate(${cockpitStickUi.x}px, ${cockpitStickUi.y}px)`,
+              }}
+              className="w-8 h-8 rounded-full bg-gradient-to-br from-sky-400 to-cyan-600 border border-white/80 shadow-[0_0_10px_rgba(56,189,248,0.75)] pointer-events-none transition-transform duration-75"
+            />
           </div>
+          <span className="text-[8px] font-mono-tech uppercase tracking-wider text-sky-300/80 bg-slate-950/75 px-1.5 py-0.5 rounded-full border border-sky-500/25">
+            Steer
+          </span>
+        </div>
 
-          <div className="bg-slate-900/75 border border-slate-800 rounded-xl p-2.5 mb-2.5">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] font-mono-tech text-slate-400">NAV WAYPOINT</span>
-              <span id="nav-target-type" className="text-[9px] font-mono-tech text-amber-300 uppercase">
-                PLANET
-              </span>
-            </div>
-            <div id="nav-target-name" className="font-display text-lg font-bold text-white truncate">
-              Earth
-            </div>
-            <div className="flex items-center justify-between mt-1 text-[11px] font-mono-tech">
-              <span className="text-slate-400">RANGE:</span>
-              <span id="nav-target-dist" className="text-sky-300 font-semibold">
-                0.00 AU
-              </span>
-            </div>
-          </div>
-
-          <div className="flex gap-2">
+        {/* BOTTOM-RIGHT TOUCH PROPULSION, WARP & ROLL PAD (COMPACT BUTTONS) */}
+        <div className="fixed bottom-3 right-3 sm:bottom-5 sm:right-5 pointer-events-auto flex flex-col items-end gap-1 select-none touch-none">
+          {/* Roll Left / Right Bank Buttons */}
+          <div className="flex items-center gap-1">
             <button
-              onClick={() => actionsRef.current?.toggleAutopilot()}
-              id="btn-autopilot"
-              className="glass-pill flex-1 py-2 px-3 rounded-xl text-xs font-medium text-slate-200 flex items-center justify-center gap-1.5"
+              onPointerDown={(e) => {
+                e.stopPropagation();
+                actionsRef.current?.setFlightKey('KeyQ', true);
+              }}
+              onPointerUp={() => actionsRef.current?.setFlightKey('KeyQ', false)}
+              onPointerLeave={() => actionsRef.current?.setFlightKey('KeyQ', false)}
+              onPointerCancel={() => actionsRef.current?.setFlightKey('KeyQ', false)}
+              className="glass-panel px-2 py-1 rounded-lg text-[9px] font-mono-tech font-semibold text-slate-200 active:bg-sky-500/30 border border-slate-700"
             >
-              <span>Autopilot Fly-To</span>
-              <span className="kbd-badge">G</span>
+              ↺ Roll L
             </button>
             <button
-              onClick={() => actionsRef.current?.zeroShipVelocity()}
-              className="glass-pill py-2 px-2.5 rounded-xl text-xs font-medium text-slate-300"
-              title="Full All-Stop Brake"
+              onPointerDown={(e) => {
+                e.stopPropagation();
+                actionsRef.current?.setFlightKey('KeyE', true);
+              }}
+              onPointerUp={() => actionsRef.current?.setFlightKey('KeyE', false)}
+              onPointerLeave={() => actionsRef.current?.setFlightKey('KeyE', false)}
+              onPointerCancel={() => actionsRef.current?.setFlightKey('KeyE', false)}
+              className="glass-panel px-2 py-1 rounded-lg text-[9px] font-mono-tech font-semibold text-slate-200 active:bg-sky-500/30 border border-slate-700"
             >
-              <span>Stop</span>
-              <span className="kbd-badge">X</span>
+              ↻ Roll R
+            </button>
+          </div>
+
+          {/* Warp & Afterburner Boost Row */}
+          <div className="flex items-center gap-1">
+            <button
+              onPointerDown={(e) => {
+                e.stopPropagation();
+                actionsRef.current?.setFlightKey('Space', true);
+              }}
+              onPointerUp={() => actionsRef.current?.setFlightKey('Space', false)}
+              onPointerLeave={() => actionsRef.current?.setFlightKey('Space', false)}
+              onPointerCancel={() => actionsRef.current?.setFlightKey('Space', false)}
+              className="glass-panel px-2.5 py-1.5 rounded-xl text-[10px] font-display font-bold uppercase tracking-wider text-fuchsia-300 border border-fuchsia-400/60 active:scale-95"
+            >
+              🌌 Warp
+            </button>
+            <button
+              onPointerDown={(e) => {
+                e.stopPropagation();
+                actionsRef.current?.setFlightKey('KeyW', true);
+                actionsRef.current?.setFlightKey('ShiftLeft', true);
+              }}
+              onPointerUp={() => {
+                actionsRef.current?.setFlightKey('KeyW', false);
+                actionsRef.current?.setFlightKey('ShiftLeft', false);
+              }}
+              onPointerLeave={() => {
+                actionsRef.current?.setFlightKey('KeyW', false);
+                actionsRef.current?.setFlightKey('ShiftLeft', false);
+              }}
+              onPointerCancel={() => {
+                actionsRef.current?.setFlightKey('KeyW', false);
+                actionsRef.current?.setFlightKey('ShiftLeft', false);
+              }}
+              className="glass-panel px-2.5 py-1.5 rounded-xl text-[10px] font-display font-bold uppercase tracking-wider text-amber-300 border border-amber-400/60 active:scale-95"
+            >
+              ⚡ Boost
+            </button>
+          </div>
+
+          {/* Sublight Thrust & Retro Brake Row */}
+          <div className="flex items-center gap-1">
+            <button
+              onPointerDown={(e) => {
+                e.stopPropagation();
+                actionsRef.current?.setFlightKey('KeyS', true);
+              }}
+              onPointerUp={() => actionsRef.current?.setFlightKey('KeyS', false)}
+              onPointerLeave={() => actionsRef.current?.setFlightKey('KeyS', false)}
+              onPointerCancel={() => actionsRef.current?.setFlightKey('KeyS', false)}
+              className="glass-panel px-2.5 py-1.5 rounded-xl text-[10px] font-mono-tech font-semibold text-slate-300 border border-slate-700 active:scale-95"
+            >
+              ⏪ Retro
+            </button>
+            <button
+              onPointerDown={(e) => {
+                e.stopPropagation();
+                actionsRef.current?.setFlightKey('KeyW', true);
+              }}
+              onPointerUp={() => actionsRef.current?.setFlightKey('KeyW', false)}
+              onPointerLeave={() => actionsRef.current?.setFlightKey('KeyW', false)}
+              onPointerCancel={() => actionsRef.current?.setFlightKey('KeyW', false)}
+              className="glass-panel px-3 py-1.5 rounded-xl text-[11px] font-display font-bold uppercase tracking-wider text-sky-200 bg-sky-500/25 border border-sky-400 active:scale-95"
+            >
+              🔥 Thrust
             </button>
           </div>
         </div>
@@ -5908,495 +6279,621 @@ export default function SolarSystem3D() {
         </div>
       </div>
 
-      {/* TOP NAVIGATION & TELEMETRY HEADER */}
-      <header className="fixed top-0 left-0 right-0 z-20 p-3 sm:p-4 pointer-events-none flex flex-col xl:flex-row items-start xl:items-center justify-between gap-2.5">
-        <div className="glass-panel rounded-2xl px-3.5 py-2 pointer-events-auto flex items-center gap-3.5">
-          <div className="flex items-center gap-3">
-            <div className="relative flex items-center justify-center w-8 h-8 rounded-full bg-amber-500/20 border border-amber-400/50">
-              <div className="w-3.5 h-3.5 rounded-full bg-amber-400 shadow-[0_0_12px_#f59e0b]" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="font-display font-bold text-sm sm:text-base tracking-wider text-white">
-                  HELIOSPHERE
-                </span>
-                <span
-                  id="mode-indicator-pill"
-                  className="text-[10px] font-mono-tech uppercase px-2 py-0.5 rounded bg-sky-500/20 text-sky-300 border border-sky-400/40"
-                >
-                  ORBITAL MODE
-                </span>
-              </div>
-              <div className="text-[11px] text-slate-400 flex items-center gap-2 font-mono-tech">
-                <span id="sim-date-display">2026-10-21</span>
-                <span className="text-slate-600">|</span>
-                <span id="active-target-indicator" className="text-sky-400">
-                  TARGET: SOL SYSTEM
-                </span>
-              </div>
+      {/* COMPACT TOP BAR (CLEAN & UNOBSTRUCTED ON MOBILE, TABLET & DESKTOP) */}
+      <header className="fixed top-0 left-0 right-0 z-30 p-2 sm:p-3 pointer-events-none flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1.5 sm:gap-2 pointer-events-auto">
+          <button
+            onClick={() => setSidePanelOpen((prev) => !prev)}
+            className={`glass-panel px-3 py-2 rounded-2xl text-xs font-semibold flex items-center gap-2 transition-all border ${
+              sidePanelOpen
+                ? 'border-sky-400 text-sky-300 shadow-[0_0_20px_rgba(56,189,248,0.3)]'
+                : 'border-slate-700/80 text-white hover:border-sky-400/60'
+            }`}
+            title="Open Command Deck Side Panel"
+          >
+            <svg
+              className="w-4 h-4 text-sky-400 flex-shrink-0"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              viewBox="0 0 24 24"
+            >
+              {sidePanelOpen ? (
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              ) : (
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+              )}
+            </svg>
+            <span className="font-display tracking-wider uppercase text-[11px] sm:text-xs">
+              Command Deck
+            </span>
+          </button>
+
+          <div className="glass-panel rounded-2xl px-2.5 py-1.5 hidden sm:flex items-center gap-2.5">
+            <div className="w-2.5 h-2.5 rounded-full bg-amber-400 shadow-[0_0_10px_#f59e0b]" />
+            <div className="text-[10px] font-mono-tech flex items-center gap-2 text-slate-300">
+              <span className="text-emerald-300 font-semibold">
+                HOME: {(ownedPlanetObj?.name || 'Gaia').toUpperCase()}
+              </span>
+              <span className="text-slate-600">|</span>
+              <span id="active-target-indicator" className="text-sky-400">
+                TARGET: GAIA
+              </span>
+              <span
+                id="mode-indicator-pill"
+                className="hidden md:inline-block text-[9px] font-mono-tech uppercase px-1.5 py-0.5 rounded bg-sky-500/20 text-sky-300 border border-sky-400/40"
+              >
+                ORBITAL MODE
+              </span>
             </div>
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-1.5 pointer-events-auto">
-          <div className="glass-panel rounded-2xl p-1.5 flex items-center gap-1.5">
-            <button
-              onClick={() => actionsRef.current?.toggleFlightMode()}
-              id="btn-cockpit-mode"
-              className="glass-pill px-3 py-1.5 rounded-xl text-xs font-semibold text-amber-300 border-amber-500/40 flex items-center gap-1.5"
-            >
-              <svg
-                className="w-3.5 h-3.5"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                viewBox="0 0 24 24"
-              >
-                <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
-              </svg>
-              <span>Cockpit Mode</span>
-              <span className="kbd-badge">C</span>
-            </button>
+        <div className="flex items-center gap-1.5 pointer-events-auto">
+          <button
+            onClick={() => actionsRef.current?.toggleLabels()}
+            className={`glass-panel px-2.5 py-2 rounded-2xl text-[10px] sm:text-xs font-semibold flex items-center gap-1 border ${
+              labelsEnabled
+                ? 'text-slate-200 border-slate-700/80'
+                : 'text-sky-300 border-sky-400/50 bg-sky-500/15'
+            }`}
+            title={labelsEnabled ? 'Disable 3D Planet Labels' : 'Show 3D Planet Labels'}
+          >
+            <span>{labelsEnabled ? 'Disable Labels' : 'Show Labels'}</span>
+          </button>
 
-            <button
-              onClick={() => actionsRef.current?.triggerSolarFlareCME(true)}
-              id="btn-solar-flare"
-              className="glass-pill px-2.5 py-1.5 rounded-xl text-xs font-medium text-orange-300 flex items-center gap-1.5"
-              title="Trigger X-Class Solar Flare & Coronal Mass Ejection"
-            >
-              <svg
-                className="w-3.5 h-3.5 text-orange-400"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                viewBox="0 0 24 24"
-              >
-                <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
-              </svg>
-              <span className="hidden sm:inline">CME Flare</span>
-              <span className="kbd-badge">X</span>
-            </button>
+          <button
+            onClick={() => setShowClaimModal(true)}
+            className="glass-panel px-2.5 py-2 rounded-2xl text-[11px] sm:text-xs font-semibold text-sky-300 border border-sky-400/40 flex items-center gap-1"
+            title="Sovereign Pact: 1 Player = 1 Ancient Earth"
+          >
+            <span>👑</span>
+            <span className="hidden xs:inline">{ownedPlanetObj?.name || 'Gaia'}</span>
+          </button>
 
-            <button
-              onClick={() => actionsRef.current?.enterEarthAtmosphere()}
-              id="btn-enter-earth"
-              className="glass-pill active px-3 py-1.5 rounded-xl text-xs font-semibold text-emerald-300 border-emerald-400/50 flex items-center gap-1.5 shadow-[0_0_15px_rgba(16,185,129,0.3)]"
-              title="Dive into Earth's Atmosphere & Open 3D Starter Base [E]"
-            >
-              <Globe2 className="w-3.5 h-3.5 text-emerald-300 animate-pulse" />
-              <span>Enter Earth Base</span>
-              <span className="kbd-badge">E</span>
-            </button>
-          </div>
-
-          <div className="glass-panel rounded-2xl p-1.5 flex items-center gap-1">
-            <button
-              onClick={() => actionsRef.current?.setCameraPreset('overview')}
-              id="preset-overview"
-              className="glass-pill active px-2.5 py-1.5 rounded-xl text-xs font-medium text-slate-200 flex items-center gap-1.5"
-            >
-              <span className="hidden sm:inline">Overview</span>
-              <span className="kbd-badge">9</span>
-            </button>
-            <button
-              onClick={() => actionsRef.current?.setCameraPreset('topdown')}
-              id="preset-topdown"
-              className="glass-pill px-2.5 py-1.5 rounded-xl text-xs font-medium text-slate-200 flex items-center gap-1.5"
-            >
-              <span className="hidden md:inline">Ecliptic</span>
-              <span className="kbd-badge">V</span>
-            </button>
-            <button
-              onClick={() => actionsRef.current?.toggleTourMode()}
-              id="preset-tour"
-              className="glass-pill px-2.5 py-1.5 rounded-xl text-xs font-medium text-slate-200 flex items-center gap-1.5"
-            >
-              <span className="hidden sm:inline">Tour</span>
-              <span className="kbd-badge">T</span>
-            </button>
-          </div>
-
-          <div className="glass-panel rounded-2xl p-1.5 flex items-center gap-1">
-            <button
-              onClick={() => actionsRef.current?.toggleOrbits()}
-              id="btn-orbits"
-              className="glass-pill active px-2 py-1.5 rounded-xl text-xs font-medium text-slate-200 flex items-center gap-1"
-            >
-              <span>Orbits</span>
-              <span className="kbd-badge">O</span>
-            </button>
-            <button
-              onClick={() => actionsRef.current?.toggleLabels()}
-              id="btn-labels"
-              className="glass-pill active px-2 py-1.5 rounded-xl text-xs font-medium text-slate-200 flex items-center gap-1"
-            >
-              <span>Labels</span>
-              <span className="kbd-badge">L</span>
-            </button>
-            <button
-              onClick={() => actionsRef.current?.toggleAsteroids()}
-              id="btn-asteroids"
-              className="glass-pill active px-2 py-1.5 rounded-xl text-xs font-medium text-slate-200 flex items-center gap-1"
-            >
-              <span>Belts</span>
-              <span className="kbd-badge">B</span>
-            </button>
-            <button
-              onClick={() => actionsRef.current?.toggleKeyboardHelp()}
-              id="btn-help"
-              className="glass-pill active px-2.5 py-1.5 rounded-xl text-xs font-semibold text-sky-300 flex items-center gap-1"
-            >
-              <span>Keys</span>
-              <span className="kbd-badge">H</span>
-            </button>
-          </div>
+          <button
+            onClick={() =>
+              actionsRef.current?.enterEarthAtmosphere(
+                isSelectedPlanetAncient ? selectedPlanetId : playerOwnedPlanetId,
+              )
+            }
+            id="btn-enter-earth"
+            className={`glass-panel px-3 py-2 rounded-2xl text-[11px] sm:text-xs font-semibold flex items-center gap-1.5 border ${
+              !isSelectedPlanetAncient || isSelectedPlanetOwned
+                ? 'text-emerald-300 border-emerald-400/60 shadow-[0_0_15px_rgba(16,185,129,0.25)]'
+                : 'text-amber-300 border-amber-400/60'
+            }`}
+            title="Dive into Planet Atmosphere [E]"
+          >
+            <Globe2 className="w-3.5 h-3.5 animate-pulse flex-shrink-0" />
+            <span>
+              {!isSelectedPlanetAncient || isSelectedPlanetOwned
+                ? `Enter ${ownedPlanetObj?.name || 'Gaia'} Base`
+                : `Spectate ${selectedPlanetObj?.name || 'Realm'}`}
+            </span>
+          </button>
         </div>
       </header>
 
-      {/* COLLAPSIBLE KEYBOARD CONTROLS CHEAT-SHEET HUD */}
+      {/* MOBILE / TABLET BACKDROP WHEN SIDE PANEL IS OPEN */}
+      {sidePanelOpen && (
+        <div
+          onClick={() => setSidePanelOpen(false)}
+          className="fixed inset-0 z-20 bg-slate-950/50 backdrop-blur-[2px] lg:hidden"
+        />
+      )}
+
+      {/* COLLAPSIBLE LEFT SIDE PANEL DRAWER (HOUSES REALMS DOCK, CONTROLS, TIME WARP & SHORTCUTS) */}
       <aside
-        id="keyboard-help-panel"
-        className="fixed top-20 left-3 sm:left-4 z-20 w-72 sm:w-80 glass-panel rounded-2xl p-3.5 text-xs transition-all duration-300 pointer-events-auto"
+        className={`fixed top-14 sm:top-16 left-2 sm:left-3 z-30 w-[calc(100vw-1rem)] max-w-[340px] max-h-[calc(100vh-4.5rem)] glass-panel rounded-3xl p-3.5 sm:p-4 flex flex-col transition-all duration-300 border border-slate-700/80 shadow-2xl ${
+          sidePanelOpen
+            ? 'translate-x-0 opacity-100 pointer-events-auto'
+            : '-translate-x-[115%] opacity-0 pointer-events-none'
+        }`}
       >
-        <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-700/70">
-          <div className="flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-sky-400" />
-            <span className="font-display font-bold text-white tracking-wide uppercase text-xs">
-              Keyboard Flight &amp; Nav Deck
-            </span>
+        {/* Drawer Header + Tab Switcher */}
+        <div className="flex items-center justify-between pb-2.5 mb-2.5 border-b border-slate-800">
+          <div>
+            <div className="text-[10px] font-mono-tech uppercase tracking-widest text-sky-400">
+              Sovereign Grid // Deck
+            </div>
+            <div className="text-xs font-mono-tech text-slate-400 flex items-center gap-1.5 mt-0.5">
+              <span id="sim-date-display">2026-10-21</span>
+              <span>•</span>
+              <span className="text-emerald-300">Home: {ownedPlanetObj?.name || 'Gaia'}</span>
+            </div>
           </div>
           <button
-            onClick={() => actionsRef.current?.toggleKeyboardHelp()}
-            className="text-slate-400 hover:text-white text-[11px] font-mono-tech"
+            onClick={() => setSidePanelOpen(false)}
+            className="glass-pill px-2.5 py-1 rounded-xl text-xs font-mono-tech text-slate-300 hover:text-white"
           >
-            HIDE <span className="kbd-badge">H</span>
+            ✕
           </button>
         </div>
 
-        <div id="help-orbital-section" className="space-y-1.5 text-[11px]">
-          <div className="text-[10px] font-mono-tech uppercase text-sky-400 font-semibold">
-            Orbital Camera Controls (No Mouse)
-          </div>
-          <div className="flex justify-between text-slate-300">
-            <span>Orbit Camera Around</span>
-            <span>
-              <kbd className="kbd-badge">Arrows</kbd> or <kbd className="kbd-badge">WASD</kbd>
-            </span>
-          </div>
-          <div className="flex justify-between text-slate-300">
-            <span>Zoom In / Out</span>
-            <span>
-              <kbd className="kbd-badge">R</kbd>
-              <kbd className="kbd-badge">F</kbd> or <kbd className="kbd-badge">+</kbd>
-              <kbd className="kbd-badge">-</kbd>
-            </span>
-          </div>
-          <div className="flex justify-between text-slate-300">
-            <span>Select Sun / Planets</span>
-            <span>
-              <kbd className="kbd-badge">0</kbd> - <kbd className="kbd-badge">8</kbd>
-            </span>
-          </div>
-          <div className="flex justify-between text-slate-300">
-            <span>Cycle All 13 Targets</span>
-            <span>
-              <kbd className="kbd-badge">[</kbd> / <kbd className="kbd-badge">]</kbd>
-            </span>
-          </div>
-          <div className="flex justify-between text-slate-300">
-            <span>Close Surface Zoom</span>
-            <span>
-              <kbd className="kbd-badge">Z</kbd>
-            </span>
-          </div>
-          <div className="flex justify-between text-emerald-300 font-medium">
-            <span>Enter Earth 3D Base</span>
-            <span>
-              <kbd className="kbd-badge">E</kbd>
-            </span>
-          </div>
+        {/* 3-Tab Navigation Bar */}
+        <div className="grid grid-cols-3 gap-1 bg-slate-900/90 p-1 rounded-2xl border border-slate-800 mb-3">
+          <button
+            onClick={() => setSidePanelTab('realms')}
+            className={`py-1.5 px-2 rounded-xl text-[11px] font-semibold transition-all ${
+              sidePanelTab === 'realms'
+                ? 'bg-sky-500/25 text-sky-300 border border-sky-400/40'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            Realms (13)
+          </button>
+          <button
+            onClick={() => setSidePanelTab('controls')}
+            className={`py-1.5 px-2 rounded-xl text-[11px] font-semibold transition-all ${
+              sidePanelTab === 'controls'
+                ? 'bg-amber-500/25 text-amber-300 border border-amber-400/40'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            Controls
+          </button>
+          <button
+            onClick={() => setSidePanelTab('keys')}
+            id="btn-help"
+            className={`py-1.5 px-2 rounded-xl text-[11px] font-semibold transition-all ${
+              sidePanelTab === 'keys'
+                ? 'bg-fuchsia-500/25 text-fuchsia-300 border border-fuchsia-400/40'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            Shortcuts
+          </button>
         </div>
 
-        <div id="help-cockpit-section" className="space-y-1.5 text-[11px] hidden">
-          <div className="text-[10px] font-mono-tech uppercase text-amber-400 font-semibold">
-            6DOF Spaceship Flight Controls
-          </div>
-          <div className="flex justify-between text-slate-300">
-            <span>Pitch &amp; Yaw Attitude</span>
-            <span>
-              <kbd className="kbd-badge">Arrow Keys</kbd>
-            </span>
-          </div>
-          <div className="flex justify-between text-slate-300">
-            <span>Roll Bank Left / Right</span>
-            <span>
-              <kbd className="kbd-badge">Q</kbd> / <kbd className="kbd-badge">E</kbd>
-            </span>
-          </div>
-          <div className="flex justify-between text-slate-300">
-            <span>Main Thrusters / Retro</span>
-            <span>
-              <kbd className="kbd-badge">W</kbd> / <kbd className="kbd-badge">S</kbd>
-            </span>
-          </div>
-          <div className="flex justify-between text-slate-300">
-            <span>Strafe Left/Right/Up/Dn</span>
-            <span>
-              <kbd className="kbd-badge">A</kbd>
-              <kbd className="kbd-badge">D</kbd> / <kbd className="kbd-badge">R</kbd>
-              <kbd className="kbd-badge">F</kbd>
-            </span>
-          </div>
-          <div className="flex justify-between text-slate-300">
-            <span>Afterburner / WARP DRIVE</span>
-            <span>
-              <kbd className="kbd-badge">Shift</kbd> / <kbd className="kbd-badge">Space</kbd>
-            </span>
-          </div>
-          <div className="flex justify-between text-slate-300">
-            <span>Autopilot Fly-To Target</span>
-            <span>
-              <kbd className="kbd-badge">G</kbd>
-            </span>
-          </div>
-        </div>
+        {/* Scrollable Tab Content Area */}
+        <div className="overflow-y-auto thin-scrollbar pr-1 space-y-3 flex-1">
+          {/* TAB 1: REALMS & CELESTIAL TARGETS DOCK */}
+          <div className={sidePanelTab === 'realms' ? 'space-y-2.5' : 'hidden'}>
+            <button
+              onClick={() => {
+                setSidePanelOpen(false);
+                setShowClaimModal(true);
+              }}
+              className="w-full py-2 px-3 rounded-2xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-400/40 text-emerald-300 text-xs font-semibold flex items-center justify-between transition-all"
+            >
+              <span>👑 Sovereign Realm Registry</span>
+              <span className="text-[10px] font-mono-tech uppercase">Change / Inspect</span>
+            </button>
 
-        <div className="mt-2.5 pt-2 border-t border-slate-800 space-y-1 text-[11px]">
-          <div className="text-[10px] font-mono-tech uppercase text-fuchsia-400 font-semibold">
-            Global Simulation Shortcuts
+            <div className="text-[10px] font-mono-tech uppercase tracking-wider text-slate-400 px-1">
+              Tap Any World or Deep-Space Target:
+            </div>
+            <div id="planet-dock" className="grid grid-cols-2 gap-1.5" />
           </div>
-          <div className="flex justify-between text-slate-300">
-            <span>Switch Cockpit / Orbit</span>
-            <span>
-              <kbd className="kbd-badge">C</kbd>
-            </span>
+
+          {/* TAB 2: FLIGHT, CAMERA, LAYERS & TIME WARP CONTROLS */}
+          <div className={sidePanelTab === 'controls' ? 'space-y-3.5' : 'hidden'}>
+            {/* Orbital Time Warp Section */}
+            <div className="bg-slate-900/75 border border-slate-800 rounded-2xl p-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-mono-tech uppercase tracking-wider text-sky-400 font-semibold">
+                  Orbital Time Warp
+                </span>
+                <span
+                  id="speed-readout"
+                  className="font-mono-tech text-xs font-semibold text-sky-300"
+                >
+                  1.0x
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => actionsRef.current?.togglePause()}
+                  id="btn-pause"
+                  className="glass-pill px-2.5 py-1.5 rounded-xl flex items-center gap-1 text-sky-400 text-xs"
+                  title="Pause / Resume Orbital Motion [P]"
+                >
+                  <svg id="icon-pause" className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
+                    <rect x="6" y="4" width="4" height="16" rx="1" />
+                    <rect x="14" y="4" width="4" height="16" rx="1" />
+                  </svg>
+                  <svg
+                    id="icon-play"
+                    className="w-3.5 h-3.5 hidden"
+                    fill="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <polygon points="6 4 20 12 6 20 6 4" />
+                  </svg>
+                </button>
+                <button
+                  onClick={() => actionsRef.current?.adjustTimeSpeed(-1)}
+                  className="glass-pill px-2 py-1 rounded-lg text-xs text-slate-300"
+                >
+                  -
+                </button>
+                <input
+                  id="time-slider"
+                  type="range"
+                  min="0"
+                  max="100"
+                  defaultValue="25"
+                  className="cosmic-slider flex-1"
+                  onChange={(e) => actionsRef.current?.onTimeSliderChange(e.target.value)}
+                />
+                <button
+                  onClick={() => actionsRef.current?.adjustTimeSpeed(1)}
+                  className="glass-pill px-2 py-1 rounded-lg text-xs text-slate-300"
+                >
+                  +
+                </button>
+              </div>
+            </div>
+
+            {/* Camera View Presets */}
+            <div className="bg-slate-900/75 border border-slate-800 rounded-2xl p-3 space-y-2">
+              <div className="text-[10px] font-mono-tech uppercase tracking-wider text-slate-400 font-semibold">
+                Camera View Presets
+              </div>
+              <div className="grid grid-cols-3 gap-1.5">
+                <button
+                  onClick={() => {
+                    actionsRef.current?.setCameraPreset('overview');
+                    setSidePanelOpen(false);
+                  }}
+                  id="preset-overview"
+                  className="glass-pill active py-2 px-2 rounded-xl text-xs font-medium text-slate-200 flex items-center justify-center"
+                >
+                  Overview
+                </button>
+                <button
+                  onClick={() => {
+                    actionsRef.current?.setCameraPreset('topdown');
+                    setSidePanelOpen(false);
+                  }}
+                  id="preset-topdown"
+                  className="glass-pill py-2 px-2 rounded-xl text-xs font-medium text-slate-200 flex items-center justify-center"
+                >
+                  Ecliptic
+                </button>
+                <button
+                  onClick={() => {
+                    actionsRef.current?.toggleTourMode();
+                    setSidePanelOpen(false);
+                  }}
+                  id="preset-tour"
+                  className="glass-pill py-2 px-2 rounded-xl text-xs font-medium text-slate-200 flex items-center justify-center"
+                >
+                  Auto Tour
+                </button>
+              </div>
+            </div>
+
+            {/* Flight & Solar Events */}
+            <div className="bg-slate-900/75 border border-slate-800 rounded-2xl p-3 space-y-2">
+              <div className="text-[10px] font-mono-tech uppercase tracking-wider text-amber-400 font-semibold">
+                Flight Deck &amp; Solar Weather
+              </div>
+              <div className="grid grid-cols-2 gap-1.5">
+                <button
+                  onClick={() => {
+                    actionsRef.current?.toggleFlightMode();
+                    setSidePanelOpen(false);
+                  }}
+                  id="btn-cockpit-mode"
+                  className="glass-pill py-2 px-2.5 rounded-xl text-xs font-semibold text-amber-300 border-amber-500/40 flex items-center justify-center gap-1.5"
+                >
+                  <span>Cockpit 6DOF</span>
+                  <span className="kbd-badge">C</span>
+                </button>
+                <button
+                  onClick={() => {
+                    actionsRef.current?.triggerSolarFlareCME(true);
+                    setSidePanelOpen(false);
+                  }}
+                  id="btn-solar-flare"
+                  className="glass-pill py-2 px-2.5 rounded-xl text-xs font-medium text-orange-300 flex items-center justify-center gap-1.5"
+                >
+                  <span>CME Flare</span>
+                  <span className="kbd-badge">X</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Visual HUD Overlays */}
+            <div className="bg-slate-900/75 border border-slate-800 rounded-2xl p-3 space-y-2">
+              <div className="text-[10px] font-mono-tech uppercase tracking-wider text-slate-400 font-semibold">
+                Visual Overlays
+              </div>
+              <div className="grid grid-cols-3 gap-1.5">
+                <button
+                  onClick={() => actionsRef.current?.toggleOrbits()}
+                  id="btn-orbits"
+                  className="glass-pill active py-2 px-2 rounded-xl text-xs font-medium text-slate-200 flex items-center justify-center"
+                >
+                  Orbits
+                </button>
+                <button
+                  onClick={() => actionsRef.current?.toggleLabels()}
+                  id="btn-labels"
+                  className={`glass-pill py-2 px-2 rounded-xl text-[11px] font-medium text-slate-200 flex items-center justify-center ${
+                    labelsEnabled ? 'active' : ''
+                  }`}
+                >
+                  {labelsEnabled ? 'Disable Labels' : 'Show Labels'}
+                </button>
+                <button
+                  onClick={() => actionsRef.current?.toggleAsteroids()}
+                  id="btn-asteroids"
+                  className="glass-pill active py-2 px-2 rounded-xl text-xs font-medium text-slate-200 flex items-center justify-center"
+                >
+                  Belts
+                </button>
+              </div>
+            </div>
           </div>
-          <div className="flex justify-between text-slate-300">
-            <span>Trigger Solar CME Flare</span>
-            <span>
-              <kbd className="kbd-badge">X</kbd>
-            </span>
-          </div>
-          <div className="flex justify-between text-slate-300">
-            <span>Pause / Time Speed</span>
-            <span>
-              <kbd className="kbd-badge">P</kbd> | <kbd className="kbd-badge">,</kbd>{' '}
-              <kbd className="kbd-badge">.</kbd>
-            </span>
+
+          {/* TAB 3: KEYBOARD SHORTCUTS CHEAT-SHEET */}
+          <div
+            id="keyboard-help-panel"
+            className={sidePanelTab === 'keys' ? 'space-y-3 text-xs' : 'hidden'}
+          >
+            <div id="help-orbital-section" className="space-y-1.5 text-[11px]">
+              <div className="text-[10px] font-mono-tech uppercase text-sky-400 font-semibold">
+                Orbital Camera Controls
+              </div>
+              <div className="flex justify-between text-slate-300">
+                <span>Orbit Camera Around</span>
+                <span>
+                  <kbd className="kbd-badge">Arrows</kbd> / <kbd className="kbd-badge">WASD</kbd>
+                </span>
+              </div>
+              <div className="flex justify-between text-slate-300">
+                <span>Zoom In / Out</span>
+                <span>
+                  <kbd className="kbd-badge">R</kbd> <kbd className="kbd-badge">F</kbd> or{' '}
+                  <kbd className="kbd-badge">+</kbd> <kbd className="kbd-badge">-</kbd>
+                </span>
+              </div>
+              <div className="flex justify-between text-slate-300">
+                <span>Select Sun / 8 Realms</span>
+                <span>
+                  <kbd className="kbd-badge">0</kbd> - <kbd className="kbd-badge">8</kbd>
+                </span>
+              </div>
+              <div className="flex justify-between text-slate-300">
+                <span>Cycle All 13 Targets</span>
+                <span>
+                  <kbd className="kbd-badge">[</kbd> / <kbd className="kbd-badge">]</kbd>
+                </span>
+              </div>
+              <div className="flex justify-between text-slate-300">
+                <span>Close Surface Zoom</span>
+                <span>
+                  <kbd className="kbd-badge">Z</kbd>
+                </span>
+              </div>
+              <div className="flex justify-between text-emerald-300 font-medium">
+                <span>Enter / Spectate Realm</span>
+                <span>
+                  <kbd className="kbd-badge">E</kbd>
+                </span>
+              </div>
+            </div>
+
+            <div id="help-cockpit-section" className="space-y-1.5 text-[11px] hidden">
+              <div className="text-[10px] font-mono-tech uppercase text-amber-400 font-semibold">
+                6DOF Spaceship Flight Controls
+              </div>
+              <div className="flex justify-between text-slate-300">
+                <span>Pitch &amp; Yaw Attitude</span>
+                <span>
+                  <kbd className="kbd-badge">Arrow Keys</kbd>
+                </span>
+              </div>
+              <div className="flex justify-between text-slate-300">
+                <span>Roll Bank Left / Right</span>
+                <span>
+                  <kbd className="kbd-badge">Q</kbd> / <kbd className="kbd-badge">E</kbd>
+                </span>
+              </div>
+              <div className="flex justify-between text-slate-300">
+                <span>Main Thrusters / Retro</span>
+                <span>
+                  <kbd className="kbd-badge">W</kbd> / <kbd className="kbd-badge">S</kbd>
+                </span>
+              </div>
+              <div className="flex justify-between text-slate-300">
+                <span>Afterburner / WARP DRIVE</span>
+                <span>
+                  <kbd className="kbd-badge">Shift</kbd> / <kbd className="kbd-badge">Space</kbd>
+                </span>
+              </div>
+            </div>
+
+            <div className="pt-2 border-t border-slate-800 space-y-1 text-[11px]">
+              <div className="text-[10px] font-mono-tech uppercase text-fuchsia-400 font-semibold">
+                Global Simulation Shortcuts
+              </div>
+              <div className="flex justify-between text-slate-300">
+                <span>Switch Cockpit / Orbit</span>
+                <span>
+                  <kbd className="kbd-badge">C</kbd>
+                </span>
+              </div>
+              <div className="flex justify-between text-slate-300">
+                <span>Trigger Solar CME Flare</span>
+                <span>
+                  <kbd className="kbd-badge">X</kbd>
+                </span>
+              </div>
+              <div className="flex justify-between text-slate-300">
+                <span>Pause / Time Speed</span>
+                <span>
+                  <kbd className="kbd-badge">P</kbd> | <kbd className="kbd-badge">,</kbd>{' '}
+                  <kbd className="kbd-badge">.</kbd>
+                </span>
+              </div>
+            </div>
           </div>
         </div>
       </aside>
 
-      {/* RIGHT-SIDE PLANET & DEEP-SPACE TELEMETRY HUD CARD */}
+      {/* COMPACT MINI TELEMETRY BAR (COLLAPSED BY DEFAULT, EXPANDABLE VIA 'INFO' BUTTON) */}
       <aside
         id="telemetry-panel"
-        className="fixed top-20 right-3 sm:right-4 z-20 w-[calc(100vw-1.5rem)] sm:w-96 max-h-[calc(100vh-12rem)] glass-panel rounded-3xl p-4 sm:p-5 flex flex-col transition-all duration-500 transform translate-x-[120%] opacity-0 pointer-events-none overflow-hidden"
+        className="fixed bottom-2.5 right-2.5 left-2.5 sm:left-auto sm:w-[350px] z-20 glass-panel rounded-2xl p-2.5 sm:p-3 flex flex-col transition-all duration-500 transform translate-x-[120%] opacity-0 pointer-events-none overflow-hidden border border-slate-700/80 shadow-2xl"
       >
-        <div className="flex items-start justify-between gap-3 pb-3 border-b border-slate-700/60">
-          <div>
-            <div className="flex items-center gap-2">
+        <div className="flex items-center justify-between gap-2">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <h2
+                id="hud-name"
+                className="font-display text-base sm:text-lg font-bold text-white tracking-tight truncate"
+              >
+                Gaia
+              </h2>
+              <span
+                id="hud-order"
+                className="text-[9px] font-mono-tech text-slate-400 uppercase"
+              >
+                #01 REALM
+              </span>
               <span
                 id="hud-classification"
-                className="text-[10px] font-mono-tech uppercase tracking-widest px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-300 border border-sky-500/30"
+                className="hidden"
               >
-                Terrestrial Planet
-              </span>
-              <span id="hud-order" className="text-[11px] font-mono-tech text-slate-400">
-                #03 FROM SUN
+                Primeval Terran Realm
               </span>
             </div>
-            <h2
-              id="hud-name"
-              className="font-display text-2xl sm:text-3xl font-bold text-white mt-1 tracking-tight"
+            <div
+              id="hud-owner-badge"
+              className="inline-block text-[8px] sm:text-[9px] font-mono-tech uppercase px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 tracking-wider mt-0.5"
             >
-              Earth
-            </h2>
+              ★ YOUR SOVEREIGN REALM (FULL CONTROL)
+            </div>
           </div>
-          <button
-            onClick={() => actionsRef.current?.releaseFocus()}
-            className="glass-pill px-2 py-1.5 rounded-xl text-slate-400 hover:text-white flex items-center gap-1"
-            title="Exit Target Lock [Esc]"
-          >
-            <span className="kbd-badge">Esc</span>
-          </button>
+
+          <div className="flex items-center gap-1 flex-shrink-0">
+            <button
+              onClick={() => setTelemetryDetailsOpen((prev) => !prev)}
+              className={`glass-pill px-2 py-1 rounded-xl text-[11px] font-mono-tech flex items-center gap-1 ${
+                telemetryDetailsOpen ? 'text-sky-300 border-sky-400/50' : 'text-slate-300'
+              }`}
+              title="Toggle Planet Telemetry Details"
+            >
+              <span>{telemetryDetailsOpen ? 'Hide Info' : 'Info'}</span>
+            </button>
+            <button
+              onClick={() => actionsRef.current?.releaseFocus()}
+              className="glass-pill px-2 py-1 rounded-xl text-slate-300 hover:text-white text-xs font-mono-tech"
+              title="Close Panel [Esc]"
+            >
+              ✕
+            </button>
+          </div>
         </div>
 
-        <div className="overflow-y-auto thin-scrollbar pr-1 my-3 space-y-3.5 text-xs sm:text-sm">
-          <p id="hud-description" className="text-slate-300 leading-relaxed text-xs sm:text-[13px]">
-            Our home world and the only known astronomical object to harbor life.
+        {/* Collapsible Details Section (Hidden unless user taps 'Info') */}
+        <div
+          className={
+            telemetryDetailsOpen
+              ? 'overflow-y-auto thin-scrollbar pr-1 my-2 pt-2 border-t border-slate-800 max-h-44 space-y-2 text-xs'
+              : 'hidden'
+          }
+        >
+          <p id="hud-description" className="text-slate-300 leading-relaxed text-[11px]">
+            The First Cradle of Life — an ancient Earth-like world of emerald supercontinents,
+            sapphire oceans, and golden auroras.
           </p>
 
-          <div className="grid grid-cols-2 gap-2">
-            <div className="bg-slate-900/70 border border-slate-800/90 rounded-2xl p-2.5">
-              <div className="text-[10px] font-mono-tech uppercase text-slate-400">
-                Mean Diameter / Span
-              </div>
-              <div id="hud-diameter" className="font-display text-sm font-semibold text-white mt-0.5">
-                12,742 km
+          <div className="grid grid-cols-3 gap-1.5">
+            <div className="bg-slate-900/70 border border-slate-800/90 rounded-xl p-1.5">
+              <div className="text-[8px] font-mono-tech uppercase text-slate-400">Diameter</div>
+              <div id="hud-diameter" className="font-display text-[11px] font-semibold text-white">
+                12,480 km
               </div>
             </div>
-            <div className="bg-slate-900/70 border border-slate-800/90 rounded-2xl p-2.5">
-              <div className="text-[10px] font-mono-tech uppercase text-slate-400">
-                Heliocentric Dist
-              </div>
+            <div className="bg-slate-900/70 border border-slate-800/90 rounded-xl p-1.5">
+              <div className="text-[8px] font-mono-tech uppercase text-slate-400">Distance</div>
               <div
                 id="hud-distance"
-                className="font-display text-sm font-semibold text-sky-300 mt-0.5"
+                className="font-display text-[11px] font-semibold text-sky-300"
               >
-                1.00 AU
+                0.42 AU
               </div>
             </div>
-            <div className="bg-slate-900/70 border border-slate-800/90 rounded-2xl p-2.5">
-              <div className="text-[10px] font-mono-tech uppercase text-slate-400">
-                Orbital Period
-              </div>
-              <div id="hud-orbit" className="font-display text-sm font-semibold text-white mt-0.5">
-                365.25 Days
+            <div className="bg-slate-900/70 border border-slate-800/90 rounded-xl p-1.5">
+              <div className="text-[8px] font-mono-tech uppercase text-slate-400">Orbit</div>
+              <div id="hud-orbit" className="font-display text-[11px] font-semibold text-white">
+                112 Days
               </div>
             </div>
-            <div className="bg-slate-900/70 border border-slate-800/90 rounded-2xl p-2.5">
-              <div className="text-[10px] font-mono-tech uppercase text-slate-400">
-                Effective Temp
-              </div>
+            <div className="bg-slate-900/70 border border-slate-800/90 rounded-xl p-1.5">
+              <div className="text-[8px] font-mono-tech uppercase text-slate-400">Temp</div>
               <div
                 id="hud-temp"
-                className="font-display text-sm font-semibold text-amber-300 mt-0.5"
+                className="font-display text-[11px] font-semibold text-amber-300"
               >
-                15°C Mean
+                21°C Mean
               </div>
             </div>
-            <div className="bg-slate-900/70 border border-slate-800/90 rounded-2xl p-2.5">
-              <div className="text-[10px] font-mono-tech uppercase text-slate-400">
-                Moons / Structure
-              </div>
-              <div id="hud-moons" className="font-display text-sm font-semibold text-white mt-0.5">
-                1 (Luna)
+            <div className="bg-slate-900/70 border border-slate-800/90 rounded-xl p-1.5">
+              <div className="text-[8px] font-mono-tech uppercase text-slate-400">Moons</div>
+              <div id="hud-moons" className="font-display text-[11px] font-semibold text-white">
+                1 (Selene-I)
               </div>
             </div>
-            <div className="bg-slate-900/70 border border-slate-800/90 rounded-2xl p-2.5">
-              <div className="text-[10px] font-mono-tech uppercase text-slate-400">
-                Spin / Obliquity
-              </div>
+            <div className="bg-slate-900/70 border border-slate-800/90 rounded-xl p-1.5">
+              <div className="text-[8px] font-mono-tech uppercase text-slate-400">Spin / Tilt</div>
               <div
                 id="hud-rotation"
-                className="font-display text-sm font-semibold text-indigo-300 mt-0.5"
+                className="font-display text-[11px] font-semibold text-indigo-300"
               >
-                23.9h / 23.4°
+                24.0h / 18.2°
               </div>
             </div>
           </div>
 
-          <div className="bg-slate-900/60 border border-slate-800/90 rounded-2xl p-3">
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-[10px] font-mono-tech uppercase text-slate-400">
-                Spectral &amp; Atmospheric Profile
-              </span>
-              <span id="hud-gravity" className="text-[11px] font-mono-tech text-sky-400">
-                9.8 m/s²
-              </span>
-            </div>
-            <div id="hud-atmosphere" className="text-xs text-slate-200 font-medium">
+          <div className="bg-slate-900/60 border border-slate-800/90 rounded-xl p-2 flex items-center justify-between gap-2">
+            <div id="hud-atmosphere" className="text-[10px] text-slate-300 truncate">
               78% Nitrogen, 21% Oxygen, 1% Argon
             </div>
+            <span id="hud-gravity" className="text-[10px] font-mono-tech text-sky-400 flex-shrink-0">
+              9.8 m/s²
+            </span>
           </div>
         </div>
 
-        <div className="pt-2.5 border-t border-slate-700/60 flex items-center justify-between gap-1.5">
+        <div className="pt-2 mt-2 border-t border-slate-700/60 flex items-center justify-between gap-1.5">
           <button
             onClick={() => actionsRef.current?.stepPlanet(-1)}
-            className="glass-pill py-2 px-2.5 rounded-xl text-xs font-medium text-slate-200 flex items-center gap-1"
+            className="glass-pill py-1.5 px-2.5 rounded-xl text-[11px] font-medium text-slate-200"
           >
-            <span className="kbd-badge">[</span>
-            <span>Prev</span>
+            Prev
           </button>
           <button
             onClick={() => actionsRef.current?.zoomToSurface()}
-            className="glass-pill flex-1 py-2 px-2.5 rounded-xl text-xs font-medium text-sky-300 flex items-center justify-center gap-1.5"
+            className="glass-pill py-1.5 px-2.5 rounded-xl text-[11px] font-medium text-sky-300"
           >
-            <span>Surface Zoom</span>
-            <span className="kbd-badge">Z</span>
+            Zoom
           </button>
-          <button
-            onClick={() => actionsRef.current?.enterEarthAtmosphere()}
-            className="glass-pill active flex-1 py-2 px-2.5 rounded-xl text-xs font-semibold text-emerald-300 flex items-center justify-center gap-1.5"
-          >
-            <span>Enter Base</span>
-            <span className="kbd-badge">E</span>
-          </button>
+          {isSelectedPlanetAncient && (
+            <button
+              onClick={() => actionsRef.current?.enterEarthAtmosphere(selectedPlanetId)}
+              className={`glass-pill active flex-1 py-1.5 px-2.5 rounded-xl text-[11px] font-semibold flex items-center justify-center gap-1 ${
+                isSelectedPlanetOwned
+                  ? 'text-emerald-300 border-emerald-400/50'
+                  : 'text-amber-300 border-amber-400/50'
+              }`}
+            >
+              <span>{isSelectedPlanetOwned ? 'Enter Your Base' : 'Spectate Realm'}</span>
+            </button>
+          )}
           <button
             onClick={() => actionsRef.current?.stepPlanet(1)}
-            className="glass-pill py-2 px-2.5 rounded-xl text-xs font-medium text-slate-200 flex items-center gap-1"
+            className="glass-pill py-1.5 px-2.5 rounded-xl text-[11px] font-medium text-slate-200"
           >
-            <span>Next</span>
-            <span className="kbd-badge">]</span>
+            Next
           </button>
         </div>
       </aside>
-
-      {/* BOTTOM INTERACTIVE DOCK: TIME WARP + ALL CELESTIAL TARGETS BAR */}
-      <footer className="fixed bottom-0 left-0 right-0 z-20 p-2.5 sm:p-4 pointer-events-none flex flex-col items-center gap-2">
-        <div className="glass-panel rounded-2xl px-3.5 py-1.5 pointer-events-auto flex flex-wrap items-center justify-center gap-3">
-          <button
-            onClick={() => actionsRef.current?.togglePause()}
-            id="btn-pause"
-            className="glass-pill px-2.5 py-1 rounded-xl flex items-center gap-1.5 text-sky-400 text-xs"
-            title="Pause / Resume Orbital Motion [P]"
-          >
-            <svg id="icon-pause" className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
-              <rect x="6" y="4" width="4" height="16" rx="1" />
-              <rect x="14" y="4" width="4" height="16" rx="1" />
-            </svg>
-            <svg
-              id="icon-play"
-              className="w-3.5 h-3.5 hidden"
-              fill="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <polygon points="6 4 20 12 6 20 6 4" />
-            </svg>
-            <span className="kbd-badge">P</span>
-          </button>
-
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => actionsRef.current?.adjustTimeSpeed(-1)}
-              className="glass-pill px-1.5 py-0.5 rounded text-xs text-slate-300"
-              title="Slower [,]"
-            >
-              <span className="kbd-badge">,</span>
-            </button>
-            <span className="text-[10px] font-mono-tech uppercase tracking-wider text-slate-400 hidden sm:inline">
-              Orbital Warp
-            </span>
-            <input
-              id="time-slider"
-              type="range"
-              min="0"
-              max="100"
-              defaultValue="25"
-              className="cosmic-slider w-20 sm:w-28"
-              onChange={(e) => actionsRef.current?.onTimeSliderChange(e.target.value)}
-            />
-            <button
-              onClick={() => actionsRef.current?.adjustTimeSpeed(1)}
-              className="glass-pill px-1.5 py-0.5 rounded text-xs text-slate-300"
-              title="Faster [.]"
-            >
-              <span className="kbd-badge">.</span>
-            </button>
-            <span
-              id="speed-readout"
-              className="font-mono-tech text-xs font-semibold text-sky-300 w-12 text-right"
-            >
-              1.0x
-            </span>
-          </div>
-        </div>
-
-        <div className="glass-panel rounded-2xl p-1.5 pointer-events-auto max-w-full overflow-x-auto no-scrollbar flex items-center gap-1.5">
-          <div id="planet-dock" className="flex items-center gap-1.5 px-1" />
-        </div>
-      </footer>
     </div>
   );
 }

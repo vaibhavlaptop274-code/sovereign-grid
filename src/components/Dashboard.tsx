@@ -1,33 +1,9 @@
-import { LogOut, Sparkles } from 'lucide-react';
-import { useAuth } from '@/hooks/useAuth';
 import SolarSystem3D from '@/components/SolarSystem3D';
 
-export default function Dashboard({ onReplayIntro }: { onReplayIntro?: () => void }) {
-  const { signOut } = useAuth();
-
+export default function Dashboard() {
   return (
     <div className="relative h-screen w-screen overflow-hidden bg-black">
       <SolarSystem3D />
-
-      <div className="fixed bottom-4 left-4 z-40 flex items-center gap-2">
-        <button
-          onClick={() => signOut()}
-          className="flex items-center gap-2 rounded-xl border border-slate-700/60 bg-slate-950/80 px-3 py-1.5 text-xs text-slate-300 backdrop-blur-md transition-all hover:border-sky-400/50 hover:text-white"
-        >
-          <LogOut className="h-3.5 w-3.5" />
-          Sign out
-        </button>
-
-        {onReplayIntro && (
-          <button
-            onClick={onReplayIntro}
-            className="flex items-center gap-1.5 rounded-xl border border-cyan-500/40 bg-slate-950/80 px-3 py-1.5 text-xs text-cyan-300 backdrop-blur-md transition-all hover:border-cyan-400 hover:bg-cyan-500/20 hover:text-white"
-          >
-            <Sparkles className="h-3.5 w-3.5 text-amber-400" />
-            Multiverse Intro
-          </button>
-        )}
-      </div>
     </div>
   );
 }

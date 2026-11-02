@@ -1,19 +1,10 @@
-import { useState, useEffect } from 'react';
 import { Loader2 } from 'lucide-react';
 import { AuthProvider, useAuth } from '@/hooks/useAuth';
 import AuthScreen from '@/components/AuthScreen';
 import Dashboard from '@/components/Dashboard';
-import MultiverseIntro from '@/components/MultiverseIntro';
 
 function Gate() {
   const { user, loading } = useAuth();
-  const [showIntro, setShowIntro] = useState(true);
-
-  useEffect(() => {
-    if (!user) {
-      setShowIntro(true);
-    }
-  }, [user]);
 
   if (loading) {
     return (
@@ -27,11 +18,7 @@ function Gate() {
     return <AuthScreen />;
   }
 
-  if (showIntro) {
-    return <MultiverseIntro onComplete={() => setShowIntro(false)} />;
-  }
-
-  return <Dashboard onReplayIntro={() => setShowIntro(true)} />;
+  return <Dashboard />;
 }
 
 export default function App() {

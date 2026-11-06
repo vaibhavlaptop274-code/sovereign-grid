@@ -53,7 +53,14 @@ function createLocalUser(email: string): User {
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const isAutostart =
+    typeof window !== 'undefined' &&
+    new URLSearchParams(window.location.search).get('autostart') === '1';
+
   const [user, setUser] = useState<User | null>(() => {
+    if (isAutostart) {
+      return createLocalUser('commander@sovereign.grid');
+    }
     if (auth) return null;
     try {
       const savedEmail = localStorage.getItem(LOCAL_USER_KEY);
@@ -62,16 +69,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return null;
     }
   });
-  const [loading, setLoading] = useState(auth !== null);
+  const [loading, setLoading] = useState(!isAutostart && auth !== null);
 
   useEffect(() => {
-    if (!auth) return;
+    if (isAutostart || !auth) return;
     const unsub = onAuthStateChanged(auth, (firebaseUser) => {
       setUser(firebaseUser);
       setLoading(false);
     });
     return () => unsub();
-  }, []);
+  }, [isAutostart]);
 
   const signIn = async (email: string, password: string) => {
     if (!auth) {

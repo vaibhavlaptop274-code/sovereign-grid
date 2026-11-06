@@ -1,10 +1,17 @@
-import { useRef, useMemo, Suspense } from 'react'
+import { useRef, useMemo } from 'react'
 import { useFrame } from '@react-three/fiber'
-import { Clouds, Cloud, Sparkles } from '@react-three/drei'
 import * as THREE from 'three'
 
 export function CosmicEffects() {
   const wormholeRef = useRef<THREE.Mesh>(null)
+
+  const dustPositions = useMemo(() => {
+    const pos = new Float32Array(500 * 3)
+    for (let i = 0; i < 500 * 3; i++) {
+      pos[i] = (Math.random() - 0.5) * 30
+    }
+    return pos
+  }, [])
 
   // Creates a twisting 3D path for the wormhole tunnel
   const curve = useMemo(() => {
@@ -31,15 +38,12 @@ export function CosmicEffects() {
   return (
     <group>
       {/* Dynamic Ambient Space Dust */}
-      <Sparkles count={500} scale={30} size={2.5} speed={0.5} color="#00ffff" />
-
-      {/* Volumetric Nebulas */}
-      <Suspense fallback={null}>
-        <Clouds material={THREE.MeshBasicMaterial}>
-          <Cloud segments={40} bounds={[15, 5, 15]} volume={12} color="#7928ca" opacity={0.4} speed={0.2} />
-          <Cloud segments={40} bounds={[12, 4, 12]} volume={10} color="#00dfd8" opacity={0.3} speed={0.3} />
-        </Clouds>
-      </Suspense>
+      <points>
+        <bufferGeometry>
+          <bufferAttribute attach="attributes-position" args={[dustPositions, 3]} />
+        </bufferGeometry>
+        <pointsMaterial size={0.18} color="#00ffff" transparent opacity={0.8} />
+      </points>
 
       {/* Sci-Fi Wormhole Tunnel Mesh */}
       <mesh ref={wormholeRef}>

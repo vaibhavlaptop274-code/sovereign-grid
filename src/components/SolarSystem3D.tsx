@@ -38,6 +38,14 @@ import {
   setTotalPlanetsCount,
   type PlanetOwnership,
 } from '@/lib/firestore';
+import {
+  createFlutedSpruceTree,
+  createBushyRoundOakTree,
+  evaluateGlobalPlanetSurface,
+  buildLandmarkSquareBaseScene,
+  type LandmarkSquareBaseSceneResult,
+} from './PlanetWorldBuilders';
+import PlanetaryWorldR3F from './PlanetaryWorldR3F';
 
 /* ---------- 0. CLASH OF CLANS + FREE FIRE 3D SPHERICAL EARTH BASE & CHARACTER SYSTEM ---------- */
 
@@ -94,113 +102,176 @@ const FREE_FIRE_CHARACTERS: Record<CharacterId, FreeFireCharacterSpec> = {
 
 const INITIAL_BASE_ENTITIES: BaseEntity[] = [
   {
-    id: 'town_hall',
-    name: 'Town Hall',
+    id: 'sanctum',
+    name: 'Sovereign Sanctum (The Tracker)',
     category: 'building',
     level: 1,
     gridX: 0,
     gridZ: 0,
     size: 3,
-    description: 'The heart of your Earth village. Upgrading unlocks new buildings, defenses, and planetary tech.',
+    description:
+      'Your central forest-meadow sanctuary & hearth. Houses the Daily Routine Tracker, Monthly Combat Graph, and Quick Daily Routine.',
   },
   {
-    id: 'gold_mine_1',
-    name: 'Gold Mine',
-    category: 'resource',
-    level: 1,
-    gridX: -4,
-    gridZ: -2,
-    size: 2,
-    description: 'Extracts precious gold ore from deep beneath Earth’s continental crust.',
-  },
-  {
-    id: 'elixir_collector_1',
-    name: 'Elixir Collector',
-    category: 'resource',
-    level: 1,
-    gridX: 4,
-    gridZ: -2,
-    size: 2,
-    description: 'Pumps glowing ley-line elixir from underground tectonic veins.',
-  },
-  {
-    id: 'builders_hut',
-    name: "Builder's Hut",
+    id: 'library',
+    name: 'Great Library (Smriti & The Study)',
     category: 'building',
     level: 1,
-    gridX: -2,
-    gridZ: 3,
-    size: 1,
-    description: 'Home of the Master Builder who constructs and upgrades your planetary village.',
-  },
-  {
-    id: 'cannon_1',
-    name: 'Cannon',
-    category: 'defense',
-    level: 1,
-    gridX: 2,
-    gridZ: 3,
-    size: 2,
-    description: 'Point-defense turret that rotates 360° to guard your starter base.',
+    gridX: 13.5,
+    gridZ: -5.5,
+    size: 3,
+    description:
+      'Classical domed archive on Scholar’s Hill overlooking the eastern strait. Houses Smriti (Mistake Vault), The Study (Exam Tracker), and Subject Syllabus Trackers.',
   },
   {
     id: 'army_camp',
-    name: 'Army Camp',
+    name: 'Command War Camp (Targets & Timer)',
     category: 'army',
     level: 1,
-    gridX: -4,
-    gridZ: 4,
+    gridX: -11.5,
+    gridZ: -10.5,
     size: 3,
-    description: 'Open-air muster ground where your heroes and troops gather around the watchfire.',
+    description:
+      'Highland war camp and watchtower guarding the northern pass. Houses Active Mission Targets (Must/Imp/Opt), Tomorrow Planning, and the Chakravyuh Timer.',
   },
   {
-    id: 'obs_pine_1',
-    name: 'Old Pine Tree',
-    category: 'obstacle',
+    id: 'crucible',
+    name: 'Crucible Citadel (35-Day Mesocycle)',
+    category: 'defense',
     level: 1,
-    gridX: -6,
-    gridZ: -6,
-    size: 1,
-    description: 'An overgrown pine tree inside your village borders. Can be cleared for Gems.',
+    gridX: -14.5,
+    gridZ: 6.5,
+    size: 3,
+    description:
+      'Ancient stone monolith sanctuary on the western ridge. Houses your independent 35-Day Mesocycle Crucible and custom focus standards.',
   },
   {
-    id: 'obs_rock_1',
-    name: 'Mossy Boulder',
-    category: 'obstacle',
+    id: 'vault',
+    name: "Kubera's Mountain Vault (Planetary Bank)",
+    category: 'resource',
     level: 1,
-    gridX: 6,
-    gridZ: -5,
-    size: 2,
-    description: 'A heavy granite boulder blocking buildable land.',
+    gridX: 10.5,
+    gridZ: -15.5,
+    size: 3,
+    description:
+      'Fortified golden-domed treasury carved into the northern alpine foothills. Houses your Arka reserves, income sources, and CE economy.',
   },
   {
-    id: 'obs_oak_1',
-    name: 'Ancient Oak',
-    category: 'obstacle',
+    id: 'market',
+    name: 'Coastal Harbor & Grand Market',
+    category: 'resource',
     level: 1,
-    gridX: 6,
-    gridZ: 5,
-    size: 1,
-    description: 'Tall forest tree growing near the edge of the clearing.',
-  },
-  {
-    id: 'obs_gem_box',
-    name: 'Gem Meteorite',
-    category: 'obstacle',
-    level: 1,
-    gridX: -7,
-    gridZ: 1,
-    size: 1,
-    description: 'A fallen cosmic crystal pulsing with rare Gems!',
+    gridX: 4.5,
+    gridZ: 13.5,
+    size: 3,
+    description:
+      'Bustling coastal bazaar and wooden harbor pier on the southern sandy bay. Houses Tejas Auras, Rank Typography upgrades, and planetary trade.',
   },
 ];
 
-// Spherical Planet Constants
-const R_PLANET = 52.0;             // Base Sea-Level Radius of the 3D Spherical Earth
-const R_VILLAGE = R_PLANET + 1.25; // Raised Continental Plateau Radius for the Starter Base
-const TILE_ANGLE = 0.0175;         // Angular step per Clash of Clans grid tile on the sphere
-const TILE_WORLD = R_VILLAGE * TILE_ANGLE; // ~0.93 world units per tile
-const GRID_TILES = 16;             // 16x16 curved Clash of Clans village clearing
+// Continuous Open-World Spherical Planet Constants (No Floating Blocks)
+const R_PLANET = 58.0;             // Sea-Level Ocean Radius of the 3D Spherical World
+const R_VILLAGE = R_PLANET;        // Base reference radius (terrain height is added continuously per vertex)
+const TILE_ANGLE = 0.0165;         // Angular step per world unit across the continuous continent
+const TILE_WORLD = R_PLANET * TILE_ANGLE;
+
+// Winding Dirt & Cobblestone Road Network connecting all 6 Landmarks across the continent
+const PLANET_ROAD_SEGMENTS: Array<{
+  id: string;
+  name: string;
+  fromId: string;
+  toId: string;
+  points: Array<[number, number]>;
+}> = [
+  {
+    id: 'road_library',
+    name: "Scholar's Trail",
+    fromId: 'sanctum',
+    toId: 'library',
+    points: [
+      [0, 0],
+      [3.5, -1.0],
+      [7.2, -3.2],
+      [10.4, -4.6],
+      [13.5, -5.5],
+    ],
+  },
+  {
+    id: 'road_warcamp',
+    name: 'Northern Ridge Road',
+    fromId: 'sanctum',
+    toId: 'army_camp',
+    points: [
+      [0, 0],
+      [-3.2, -2.5],
+      [-6.5, -5.8],
+      [-9.2, -8.4],
+      [-11.5, -10.5],
+    ],
+  },
+  {
+    id: 'road_crucible',
+    name: 'Western Monolith Way',
+    fromId: 'sanctum',
+    toId: 'crucible',
+    points: [
+      [0, 0],
+      [-3.8, 1.8],
+      [-7.8, 3.8],
+      [-11.2, 5.2],
+      [-14.5, 6.5],
+    ],
+  },
+  {
+    id: 'road_market',
+    name: 'Southern Coast Trail',
+    fromId: 'sanctum',
+    toId: 'market',
+    points: [
+      [0, 0],
+      [1.2, 3.6],
+      [2.6, 7.2],
+      [3.7, 10.5],
+      [4.5, 13.5],
+    ],
+  },
+  {
+    id: 'road_vault_east',
+    name: 'Treasury Pass',
+    fromId: 'library',
+    toId: 'vault',
+    points: [
+      [13.5, -5.5],
+      [13.2, -8.8],
+      [12.2, -12.2],
+      [10.5, -15.5],
+    ],
+  },
+  {
+    id: 'road_vault_north',
+    name: 'High Alpine Trail',
+    fromId: 'army_camp',
+    toId: 'vault',
+    points: [
+      [-11.5, -10.5],
+      [-4.8, -13.2],
+      [2.8, -14.8],
+      [10.5, -15.5],
+    ],
+  },
+  {
+    id: 'road_coastal_west',
+    name: 'Bayshore Bridleway',
+    fromId: 'crucible',
+    toId: 'market',
+    points: [
+      [-14.5, 6.5],
+      [-9.0, 10.2],
+      [-2.2, 12.6],
+      [4.5, 13.5],
+    ],
+  },
+];
 
 /* ---------- ARTICULATED 3D FREE FIRE CHARACTER RIG BUILDER ---------- */
 
@@ -870,7 +941,636 @@ loader.load(
   };
 }
 
-/* ---------- MAIN PLANET BASE + FREE FIRE CHARACTER VIEW ---------- */
+/* ---------- PROCEDURAL PBR TEXTURES & NORMAL MAPS FOR REALISTIC 3D RENDERING ---------- */
+
+interface RealisticWorldTextures {
+  waterNormalMap: THREE.CanvasTexture;
+  terrainDetailBump: THREE.CanvasTexture;
+  barkTexture: THREE.CanvasTexture;
+  stoneTexture: THREE.CanvasTexture;
+  horseCoatTexture: THREE.CanvasTexture;
+  envEquirectTexture: THREE.CanvasTexture;
+}
+
+let cachedRealisticTextures: RealisticWorldTextures | null = null;
+
+function getRealisticWorldTextures(): RealisticWorldTextures {
+  if (cachedRealisticTextures) return cachedRealisticTextures;
+
+  // 1. Tileable Ocean Wave Normal Map (RGB tangent-space normals for realistic sparkling water)
+  const waterCanvas = document.createElement('canvas');
+  waterCanvas.width = 256;
+  waterCanvas.height = 256;
+  const wCtx = waterCanvas.getContext('2d')!;
+  const wImg = wCtx.createImageData(256, 256);
+  for (let y = 0; y < 256; y++) {
+    for (let x = 0; x < 256; x++) {
+      const u = (x / 256) * Math.PI * 2;
+      const v = (y / 256) * Math.PI * 2;
+      const dx =
+        Math.cos(u * 3 + v * 2) * 0.38 +
+        Math.cos(u * 7 - v * 5) * 0.25 +
+        Math.sin(u * 13 + v * 11) * 0.16;
+      const dy =
+        Math.sin(u * 2 - v * 4) * 0.38 +
+        Math.cos(u * 5 + v * 8) * 0.25 +
+        Math.cos(u * 11 - v * 14) * 0.16;
+      const nz = 1.0;
+      const len = Math.hypot(dx, dy, nz);
+      const idx = (y * 256 + x) * 4;
+      wImg.data[idx] = Math.floor(((dx / len) * 0.5 + 0.5) * 255);
+      wImg.data[idx + 1] = Math.floor(((dy / len) * 0.5 + 0.5) * 255);
+      wImg.data[idx + 2] = Math.floor(((nz / len) * 0.5 + 0.5) * 255);
+      wImg.data[idx + 3] = 255;
+    }
+  }
+  wCtx.putImageData(wImg, 0, 0);
+  const waterNormalMap = new THREE.CanvasTexture(waterCanvas);
+  waterNormalMap.wrapS = THREE.RepeatWrapping;
+  waterNormalMap.wrapT = THREE.RepeatWrapping;
+  waterNormalMap.repeat.set(28, 28);
+
+  // 2. High-Frequency Terrain Micro-Detail Bump Map (soil, grass blades, rock grit, sand ripples)
+  const detailCanvas = document.createElement('canvas');
+  detailCanvas.width = 512;
+  detailCanvas.height = 512;
+  const dCtx = detailCanvas.getContext('2d')!;
+  const dImg = dCtx.createImageData(512, 512);
+  let s = 4219;
+  const rand = () => {
+    s = (s * 16807) % 2147483647;
+    return (s - 1) / 2147483646;
+  };
+  for (let y = 0; y < 512; y++) {
+    for (let x = 0; x < 512; x++) {
+      const u = (x / 512) * Math.PI * 2;
+      const v = (y / 512) * Math.PI * 2;
+      const wave =
+        Math.sin(u * 8) * Math.cos(v * 8) * 32 +
+        Math.sin(u * 24 + v * 18) * 22 +
+        (rand() - 0.5) * 48;
+      const val = clamp(Math.floor(128 + wave), 0, 255);
+      const idx = (y * 512 + x) * 4;
+      dImg.data[idx] = val;
+      dImg.data[idx + 1] = val;
+      dImg.data[idx + 2] = val;
+      dImg.data[idx + 3] = 255;
+    }
+  }
+  dCtx.putImageData(dImg, 0, 0);
+  const terrainDetailBump = new THREE.CanvasTexture(detailCanvas);
+  terrainDetailBump.wrapS = THREE.RepeatWrapping;
+  terrainDetailBump.wrapT = THREE.RepeatWrapping;
+  terrainDetailBump.repeat.set(32, 32);
+
+  // 3. Realistic Fibrous Tree Bark & Timber Grain Texture
+  const barkCanvas = document.createElement('canvas');
+  barkCanvas.width = 256;
+  barkCanvas.height = 256;
+  const bCtx = barkCanvas.getContext('2d')!;
+  bCtx.fillStyle = '#4a321c';
+  bCtx.fillRect(0, 0, 256, 256);
+  for (let i = 0; i < 420; i++) {
+    const bx = rand() * 256;
+    const by = rand() * 256;
+    const bw = 2 + rand() * 5;
+    const bh = 25 + rand() * 65;
+    bCtx.fillStyle = rand() > 0.45 ? 'rgba(28, 17, 8, 0.55)' : 'rgba(96, 68, 40, 0.45)';
+    bCtx.fillRect(bx, by, bw, bh);
+  }
+  const barkTexture = new THREE.CanvasTexture(barkCanvas);
+  barkTexture.wrapS = THREE.RepeatWrapping;
+  barkTexture.wrapT = THREE.RepeatWrapping;
+
+  // 4. Carved Ashlar Stone & Weathered Granite Texture
+  const stoneCanvas = document.createElement('canvas');
+  stoneCanvas.width = 256;
+  stoneCanvas.height = 256;
+  const stCtx = stoneCanvas.getContext('2d')!;
+  stCtx.fillStyle = '#94a3b8';
+  stCtx.fillRect(0, 0, 256, 256);
+  for (let i = 0; i < 900; i++) {
+    stCtx.fillStyle = rand() > 0.5 ? 'rgba(51,65,85,0.22)' : 'rgba(241,245,249,0.22)';
+    stCtx.fillRect(rand() * 256, rand() * 256, 3 + rand() * 8, 3 + rand() * 6);
+  }
+  stCtx.strokeStyle = 'rgba(30, 41, 59, 0.45)';
+  stCtx.lineWidth = 2;
+  for (let row = 0; row < 8; row++) {
+    const ry = row * 32;
+    stCtx.beginPath();
+    stCtx.moveTo(0, ry);
+    stCtx.lineTo(256, ry);
+    stCtx.stroke();
+    const offset = (row % 2) * 32;
+    for (let col = 0; col < 4; col++) {
+      const cx = offset + col * 64;
+      stCtx.beginPath();
+      stCtx.moveTo(cx, ry);
+      stCtx.lineTo(cx, ry + 32);
+      stCtx.stroke();
+    }
+  }
+  const stoneTexture = new THREE.CanvasTexture(stoneCanvas);
+  stoneTexture.wrapS = THREE.RepeatWrapping;
+  stoneTexture.wrapT = THREE.RepeatWrapping;
+
+  // 5. Fine Brushed Equine Coat Sheen Texture
+  const coatCanvas = document.createElement('canvas');
+  coatCanvas.width = 256;
+  coatCanvas.height = 256;
+  const cCtx = coatCanvas.getContext('2d')!;
+  cCtx.fillStyle = '#6b3416';
+  cCtx.fillRect(0, 0, 256, 256);
+  for (let i = 0; i < 1200; i++) {
+    cCtx.fillStyle = rand() > 0.5 ? 'rgba(124, 63, 28, 0.28)' : 'rgba(46, 20, 7, 0.28)';
+    cCtx.fillRect(rand() * 256, rand() * 256, 1.5, 10 + rand() * 14);
+  }
+  const horseCoatTexture = new THREE.CanvasTexture(coatCanvas);
+  horseCoatTexture.wrapS = THREE.RepeatWrapping;
+  horseCoatTexture.wrapT = THREE.RepeatWrapping;
+
+  // 6. Equirectangular Natural Sky & Earth Reflection Map for PBR Materials
+  const envCanvas = document.createElement('canvas');
+  envCanvas.width = 512;
+  envCanvas.height = 256;
+  const eCtx = envCanvas.getContext('2d')!;
+  const skyGrad = eCtx.createLinearGradient(0, 0, 0, 256);
+  skyGrad.addColorStop(0.0, '#0c4a6e'); // Deep zenith sky blue
+  skyGrad.addColorStop(0.36, '#38bdf8'); // Mid daytime sky
+  skyGrad.addColorStop(0.49, '#fde68a'); // Warm golden atmospheric horizon
+  skyGrad.addColorStop(0.52, '#3f6212'); // Sunlit forest horizon bounce
+  skyGrad.addColorStop(1.0, '#1e293b'); // Ground shadow bounce
+  eCtx.fillStyle = skyGrad;
+  eCtx.fillRect(0, 0, 512, 256);
+  // Bright solar reflection hotspot
+  const sunRadial = eCtx.createRadialGradient(360, 88, 4, 360, 88, 68);
+  sunRadial.addColorStop(0, 'rgba(255, 255, 240, 1.0)');
+  sunRadial.addColorStop(0.3, 'rgba(254, 240, 138, 0.65)');
+  sunRadial.addColorStop(1, 'rgba(254, 240, 138, 0.0)');
+  eCtx.fillStyle = sunRadial;
+  eCtx.fillRect(280, 15, 160, 150);
+
+  const envEquirectTexture = new THREE.CanvasTexture(envCanvas);
+  envEquirectTexture.mapping = THREE.EquirectangularReflectionMapping;
+  envEquirectTexture.colorSpace = THREE.SRGBColorSpace;
+
+  cachedRealisticTextures = {
+    waterNormalMap,
+    terrainDetailBump,
+    barkTexture,
+    stoneTexture,
+    horseCoatTexture,
+    envEquirectTexture,
+  };
+  return cachedRealisticTextures;
+}
+
+/* ---------- ANATOMICALLY SCULPTED 3D SOVEREIGN WARHORSE RIG BUILDER ---------- */
+
+interface HorseLegRig {
+  hipPivot: THREE.Group;
+  kneePivot: THREE.Group;
+  fetlockPivot: THREE.Group;
+}
+
+interface SovereignHorseRig {
+  root: THREE.Group;
+  bodyPivot: THREE.Group;
+  neckPivot: THREE.Group;
+  headGroup: THREE.Group;
+  tailPivot: THREE.Group;
+  saddleSeatNode: THREE.Group;
+  frontLeft: HorseLegRig;
+  frontRight: HorseLegRig;
+  backLeft: HorseLegRig;
+  backRight: HorseLegRig;
+}
+
+function buildSovereignHorseRig(): SovereignHorseRig {
+  const tex = getRealisticWorldTextures();
+  const root = new THREE.Group();
+  const bodyPivot = new THREE.Group();
+  bodyPivot.scale.setScalar(0.86);
+  root.add(bodyPivot);
+
+  // Realistic PBR Bay/Chestnut Coat with Clearcoat Hair Sheen & Dark Points
+  const coatMat = new THREE.MeshPhysicalMaterial({
+    map: tex.horseCoatTexture,
+    bumpMap: tex.horseCoatTexture,
+    bumpScale: 0.015,
+    color: 0x7c3a19,
+    roughness: 0.46,
+    metalness: 0.04,
+    clearcoat: 0.28,
+    clearcoatRoughness: 0.42,
+  });
+  const darkPointMat = new THREE.MeshPhysicalMaterial({
+    map: tex.horseCoatTexture,
+    color: 0x29150c,
+    roughness: 0.52,
+    clearcoat: 0.22,
+  });
+  const darkManeMat = new THREE.MeshStandardMaterial({
+    map: tex.horseCoatTexture,
+    color: 0x140d0a,
+    roughness: 0.82,
+  });
+  const leatherMat = new THREE.MeshPhysicalMaterial({
+    color: 0x361b0b,
+    roughness: 0.38,
+    metalness: 0.08,
+    clearcoat: 0.35,
+    clearcoatRoughness: 0.3,
+  });
+  const goldTrimMat = new THREE.MeshStandardMaterial({
+    color: 0xfbbf24,
+    roughness: 0.2,
+    metalness: 0.92,
+  });
+  const hoofMat = new THREE.MeshPhysicalMaterial({
+    color: 0x1c1917,
+    roughness: 0.32,
+    metalness: 0.15,
+    clearcoat: 0.45,
+  });
+
+  // 1. Anatomically Sculpted Muscular Ribcage, Deep Chest, Withers & Rounded Croup
+  const barrel = new THREE.Mesh(new THREE.CapsuleGeometry(0.37, 0.96, 14, 24), coatMat);
+  barrel.rotation.x = Math.PI / 2;
+  barrel.scale.set(0.94, 1.0, 1.06);
+  barrel.position.set(0, 1.2, 0.0);
+  barrel.castShadow = true;
+  barrel.receiveShadow = true;
+  bodyPivot.add(barrel);
+
+  // Broad Muscular Pectorals / Chest
+  const chest = new THREE.Mesh(new THREE.SphereGeometry(0.41, 20, 18), coatMat);
+  chest.scale.set(0.92, 1.08, 1.16);
+  chest.position.set(0, 1.21, 0.54);
+  chest.castShadow = true;
+  bodyPivot.add(chest);
+
+  // Elevated Withers (where neck meets back)
+  const withers = new THREE.Mesh(new THREE.SphereGeometry(0.34, 16, 14), coatMat);
+  withers.scale.set(0.82, 1.05, 1.25);
+  withers.position.set(0, 1.38, 0.38);
+  withers.castShadow = true;
+  bodyPivot.add(withers);
+
+  // Powerful Hindquarters / Croup
+  const croup = new THREE.Mesh(new THREE.SphereGeometry(0.41, 20, 18), coatMat);
+  croup.scale.set(0.96, 1.08, 1.18);
+  croup.position.set(0, 1.25, -0.52);
+  croup.castShadow = true;
+  bodyPivot.add(croup);
+
+  // Muscular Flank / Gaskin Transition
+  [-0.22, 0.22].forEach((fx) => {
+    const flank = new THREE.Mesh(new THREE.SphereGeometry(0.24, 14, 12), coatMat);
+    flank.scale.set(0.85, 1.25, 1.15);
+    flank.position.set(fx, 1.12, -0.54);
+    flank.castShadow = true;
+    bodyPivot.add(flank);
+  });
+
+  // 2. Royal Quilted Saddle Pad, Contoured Calvary Saddle, Girth Strap & Stirrups
+  const saddlePad = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.42, 0.43, 0.78, 18, 1, false, -Math.PI * 0.62, Math.PI * 1.24),
+    new THREE.MeshStandardMaterial({ color: 0x881337, roughness: 0.72, side: THREE.DoubleSide }),
+  );
+  saddlePad.rotation.z = Math.PI / 2;
+  saddlePad.rotation.y = Math.PI / 2;
+  saddlePad.position.set(0, 1.23, 0.02);
+  saddlePad.castShadow = true;
+  bodyPivot.add(saddlePad);
+
+  const goldTrimPad = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.428, 0.438, 0.81, 18, 1, false, -Math.PI * 0.63, Math.PI * 1.26),
+    goldTrimMat,
+  );
+  goldTrimPad.rotation.z = Math.PI / 2;
+  goldTrimPad.rotation.y = Math.PI / 2;
+  goldTrimPad.position.set(0, 1.22, 0.02);
+  bodyPivot.add(goldTrimPad);
+
+  // Leather Girth Strap wrapping under the barrel
+  const girth = new THREE.Mesh(new THREE.CylinderGeometry(0.382, 0.382, 0.12, 20), leatherMat);
+  girth.rotation.x = Math.PI / 2;
+  girth.position.set(0, 1.19, 0.14);
+  bodyPivot.add(girth);
+
+  // Contoured Leather Saddle Seat, Pommel & High Cantle
+  const saddleSeat = new THREE.Mesh(new THREE.SphereGeometry(0.32, 16, 12), leatherMat);
+  saddleSeat.scale.set(1.05, 0.38, 1.25);
+  saddleSeat.position.set(0, 1.58, 0.02);
+  saddleSeat.castShadow = true;
+  bodyPivot.add(saddleSeat);
+
+  const pommel = new THREE.Mesh(new THREE.CapsuleGeometry(0.08, 0.22, 8, 12), leatherMat);
+  pommel.rotation.z = Math.PI / 2;
+  pommel.position.set(0, 1.67, 0.28);
+  bodyPivot.add(pommel);
+
+  const cantle = new THREE.Mesh(new THREE.CapsuleGeometry(0.095, 0.26, 8, 12), leatherMat);
+  cantle.rotation.z = Math.PI / 2;
+  cantle.rotation.x = -0.25;
+  cantle.position.set(0, 1.69, -0.24);
+  bodyPivot.add(cantle);
+
+  // Breastplate Strap & Golden Medallion across chest
+  const breastStrap = new THREE.Mesh(
+    new THREE.TorusGeometry(0.41, 0.025, 8, 20, Math.PI),
+    leatherMat,
+  );
+  breastStrap.rotation.x = Math.PI / 2 - 0.18;
+  breastStrap.position.set(0, 1.25, 0.56);
+  bodyPivot.add(breastStrap);
+
+  const chestMedallion = new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.065, 0.03, 14), goldTrimMat);
+  chestMedallion.rotation.x = Math.PI / 2;
+  chestMedallion.position.set(0, 1.22, 0.96);
+  bodyPivot.add(chestMedallion);
+
+  // Stirrup Leathers & Golden Stirrup Irons
+  [-0.41, 0.41].forEach((sx) => {
+    const strap = new THREE.Mesh(new THREE.BoxGeometry(0.024, 0.54, 0.055), leatherMat);
+    strap.position.set(sx, 1.25, 0.06);
+    bodyPivot.add(strap);
+
+    const iron = new THREE.Mesh(new THREE.TorusGeometry(0.068, 0.016, 8, 16), goldTrimMat);
+    iron.rotation.y = Math.PI / 2;
+    iron.position.set(sx, 0.95, 0.06);
+    bodyPivot.add(iron);
+  });
+
+  const saddleSeatNode = new THREE.Group();
+  saddleSeatNode.position.set(0, 1.56, 0.02);
+  bodyPivot.add(saddleSeatNode);
+
+  // 3. Sculpted Arched Muscular Neck, Layered Flowing Mane & Realistic Equine Head
+  const neckPivot = new THREE.Group();
+  neckPivot.position.set(0, 1.38, 0.62);
+  neckPivot.rotation.x = 0.48;
+  bodyPivot.add(neckPivot);
+
+  // Multi-section tapered muscular neck
+  const neckBase = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.34, 0.48, 16), coatMat);
+  neckBase.scale.set(0.82, 1.0, 1.18);
+  neckBase.position.set(0, 0.22, 0.02);
+  neckBase.castShadow = true;
+  neckPivot.add(neckBase);
+
+  const neckUpper = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.25, 0.52, 16), coatMat);
+  neckUpper.scale.set(0.8, 1.0, 1.14);
+  neckUpper.position.set(0, 0.62, 0.04);
+  neckUpper.rotation.x = -0.1;
+  neckUpper.castShadow = true;
+  neckPivot.add(neckUpper);
+
+  // 10-Lock Flowing Dark Mane along the Crest
+  for (let i = 0; i < 10; i++) {
+    const t = i / 9;
+    const lock = new THREE.Mesh(
+      new THREE.ConeGeometry(0.065 - t * 0.015, 0.28, 8),
+      darkManeMat,
+    );
+    lock.position.set(
+      (i % 2 === 0 ? 1 : -1) * 0.03,
+      0.06 + t * 0.74,
+      -0.18 + t * 0.03,
+    );
+    lock.rotation.x = -2.2;
+    lock.rotation.z = (i % 2 === 0 ? -0.18 : 0.18);
+    lock.castShadow = true;
+    neckPivot.add(lock);
+  }
+
+  // Sculpted Equine Head Group
+  const headGroup = new THREE.Group();
+  headGroup.position.set(0, 0.84, 0.08);
+  headGroup.rotation.x = -0.42;
+  neckPivot.add(headGroup);
+
+  // Cranium & Cheekbones (Jowls)
+  const cranium = new THREE.Mesh(new THREE.SphereGeometry(0.21, 16, 14), coatMat);
+  cranium.scale.set(0.84, 0.92, 1.18);
+  cranium.position.set(0, 0.06, 0.08);
+  cranium.castShadow = true;
+  headGroup.add(cranium);
+
+  [-0.08, 0.08].forEach((jx) => {
+    const jowl = new THREE.Mesh(new THREE.SphereGeometry(0.14, 12, 12), coatMat);
+    jowl.scale.set(0.72, 1.05, 1.15);
+    jowl.position.set(jx, -0.02, 0.06);
+    headGroup.add(jowl);
+  });
+
+  // Tapered Nasal Bridge
+  const nasalBridge = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.11, 0.175, 0.46, 14),
+    coatMat,
+  );
+  nasalBridge.rotation.x = Math.PI / 2 + 0.12;
+  nasalBridge.scale.set(0.86, 1.0, 0.94);
+  nasalBridge.position.set(0, 0.02, 0.32);
+  nasalBridge.castShadow = true;
+  headGroup.add(nasalBridge);
+
+  // Soft Dark Velvet Muzzle & Flared Nostrils
+  const muzzle = new THREE.Mesh(new THREE.SphereGeometry(0.118, 16, 14), darkPointMat);
+  muzzle.scale.set(0.92, 0.84, 1.15);
+  muzzle.position.set(0, -0.02, 0.55);
+  muzzle.castShadow = true;
+  headGroup.add(muzzle);
+
+  [-0.065, 0.065].forEach((nx) => {
+    const nostril = new THREE.Mesh(
+      new THREE.SphereGeometry(0.032, 10, 10),
+      new THREE.MeshStandardMaterial({ color: 0x090504, roughness: 0.4 }),
+    );
+    nostril.scale.set(0.7, 1.1, 1.3);
+    nostril.position.set(nx, 0.01, 0.62);
+    headGroup.add(nostril);
+  });
+
+  // White Forehead Star & Nasal Blaze
+  const blaze = new THREE.Mesh(
+    new THREE.CapsuleGeometry(0.032, 0.28, 6, 10),
+    new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.65 }),
+  );
+  blaze.rotation.x = Math.PI / 2 + 0.11;
+  blaze.scale.set(1.0, 1.0, 0.32);
+  blaze.position.set(0, 0.11, 0.31);
+  headGroup.add(blaze);
+
+  // Forelock Tuft between Ears
+  const forelock = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.24, 8), darkManeMat);
+  forelock.rotation.x = Math.PI / 2 + 0.35;
+  forelock.position.set(0, 0.2, 0.18);
+  headGroup.add(forelock);
+
+  // Realistic Glossy Equine Eyes with Brow Ridges
+  [-0.155, 0.155].forEach((ex) => {
+    const eye = new THREE.Mesh(
+      new THREE.SphereGeometry(0.038, 12, 12),
+      new THREE.MeshPhysicalMaterial({
+        color: 0x170d06,
+        roughness: 0.08,
+        clearcoat: 1.0,
+      }),
+    );
+    eye.position.set(ex, 0.09, 0.19);
+    headGroup.add(eye);
+  });
+
+  // Sculpted Alert Equine Ears
+  [-0.105, 0.105].forEach((earX) => {
+    const ear = new THREE.Mesh(new THREE.ConeGeometry(0.048, 0.22, 10), coatMat);
+    ear.scale.set(0.75, 1.0, 1.1);
+    ear.position.set(earX, 0.27, 0.0);
+    ear.rotation.z = earX > 0 ? -0.16 : 0.16;
+    ear.rotation.x = 0.15;
+    headGroup.add(ear);
+  });
+
+  // Detailed Leather Headstall, Golden Browband, Noseband, Brass Bit & Draped Reins
+  const noseband = new THREE.Mesh(new THREE.TorusGeometry(0.118, 0.016, 8, 18), leatherMat);
+  noseband.position.set(0, 0.0, 0.44);
+  headGroup.add(noseband);
+
+  const browband = new THREE.Mesh(
+    new THREE.TorusGeometry(0.165, 0.014, 8, 16, Math.PI),
+    goldTrimMat,
+  );
+  browband.rotation.x = -0.35;
+  browband.position.set(0, 0.15, 0.12);
+  headGroup.add(browband);
+
+  [-0.135, 0.135].forEach((bx) => {
+    const bitRing = new THREE.Mesh(new THREE.TorusGeometry(0.032, 0.008, 8, 14), goldTrimMat);
+    bitRing.rotation.y = Math.PI / 2;
+    bitRing.position.set(bx, -0.04, 0.51);
+    headGroup.add(bitRing);
+
+    const cheekStrap = new THREE.Mesh(new THREE.CylinderGeometry(0.01, 0.01, 0.38, 8), leatherMat);
+    cheekStrap.rotation.x = Math.PI / 2 + 0.22;
+    cheekStrap.position.set(bx, 0.06, 0.32);
+    headGroup.add(cheekStrap);
+
+    const rein = new THREE.Mesh(new THREE.CylinderGeometry(0.011, 0.011, 0.96, 8), leatherMat);
+    rein.rotation.x = Math.PI / 2 + 0.28;
+    rein.position.set(bx, -0.18, 0.02);
+    headGroup.add(rein);
+  });
+
+  // 4. Multi-Strand Flowing Equine Tail
+  const tailPivot = new THREE.Group();
+  tailPivot.position.set(0, 1.32, -0.88);
+  tailPivot.rotation.x = 0.38;
+  bodyPivot.add(tailPivot);
+
+  const tailDock = new THREE.Mesh(new THREE.CapsuleGeometry(0.065, 0.38, 8, 12), darkManeMat);
+  tailDock.position.set(0, -0.22, -0.06);
+  tailDock.castShadow = true;
+  tailPivot.add(tailDock);
+
+  const tailMid = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.14, 0.52, 12), darkManeMat);
+  tailMid.position.set(0, -0.52, -0.1);
+  tailMid.castShadow = true;
+  tailPivot.add(tailMid);
+
+  const tailTip = new THREE.Mesh(new THREE.ConeGeometry(0.14, 0.48, 12), darkManeMat);
+  tailTip.rotation.x = Math.PI;
+  tailTip.position.set(0, -0.94, -0.12);
+  tailTip.castShadow = true;
+  tailPivot.add(tailTip);
+
+  // 5. Four Anatomically Sculpted 3-Segment Equine Legs (Upper Muscular Leg -> Cannon -> Pastern & Hoof)
+  function createAnatomicalHorseLeg(lx: number, lz: number, isHind: boolean): HorseLegRig {
+    const hipPivot = new THREE.Group();
+    hipPivot.position.set(lx, 1.06, lz);
+    bodyPivot.add(hipPivot);
+
+    // Muscular Upper Shoulder / Gaskin
+    const upperRadiusTop = isHind ? 0.165 : 0.14;
+    const upperLeg = new THREE.Mesh(
+      new THREE.CylinderGeometry(upperRadiusTop, 0.092, 0.54, 14),
+      coatMat,
+    );
+    upperLeg.scale.set(0.88, 1.0, 1.15);
+    upperLeg.position.y = -0.25;
+    upperLeg.castShadow = true;
+    hipPivot.add(upperLeg);
+
+    // Sculpted Knee / Hock Joint
+    const kneeJoint = new THREE.Mesh(new THREE.SphereGeometry(0.095, 12, 12), darkPointMat);
+    kneeJoint.scale.set(0.9, 1.05, 1.12);
+    kneeJoint.position.y = -0.53;
+    hipPivot.add(kneeJoint);
+
+    const kneePivot = new THREE.Group();
+    kneePivot.position.y = -0.53;
+    hipPivot.add(kneePivot);
+
+    // Slender Lower Cannon Bone (Dark Bay Point Shading)
+    const cannon = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.078, 0.065, 0.38, 12),
+      darkPointMat,
+    );
+    cannon.position.y = -0.19;
+    cannon.castShadow = true;
+    kneePivot.add(cannon);
+
+    // White Sock & Fetlock Joint
+    const fetlockJoint = new THREE.Mesh(
+      new THREE.SphereGeometry(0.074, 10, 10),
+      new THREE.MeshStandardMaterial({ color: 0xf1f5f9, roughness: 0.65 }),
+    );
+    fetlockJoint.position.y = -0.39;
+    kneePivot.add(fetlockJoint);
+
+    const fetlockPivot = new THREE.Group();
+    fetlockPivot.position.y = -0.39;
+    kneePivot.add(fetlockPivot);
+
+    // Angled Pastern
+    const pastern = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.066, 0.076, 0.1, 10),
+      new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.65 }),
+    );
+    pastern.rotation.x = -0.22;
+    pastern.position.set(0, -0.04, 0.015);
+    fetlockPivot.add(pastern);
+
+    // Beveled Keratin Hoof
+    const hoof = new THREE.Mesh(new THREE.CylinderGeometry(0.078, 0.104, 0.1, 14), hoofMat);
+    hoof.position.set(0, -0.1, 0.032);
+    hoof.castShadow = true;
+    fetlockPivot.add(hoof);
+
+    return { hipPivot, kneePivot, fetlockPivot };
+  }
+
+  const frontLeft = createAnatomicalHorseLeg(0.23, 0.56, false);
+  const frontRight = createAnatomicalHorseLeg(-0.23, 0.56, false);
+  const backLeft = createAnatomicalHorseLeg(0.24, -0.56, true);
+  const backRight = createAnatomicalHorseLeg(-0.24, -0.56, true);
+
+  return {
+    root,
+    bodyPivot,
+    neckPivot,
+    headGroup,
+    tailPivot,
+    saddleSeatNode,
+    frontLeft,
+    frontRight,
+    backLeft,
+    backRight,
+  };
+}
+
+/* ---------- CONTINUOUS REALISTIC PBR OPEN-WORLD PLANET SURFACE + HORSE & RIDER VIEW ---------- */
 
 function EarthBase3DView({
   planetId,
@@ -878,23 +1578,29 @@ function EarthBase3DView({
   isOwner,
   ownerName,
   onExitToSpace,
+  onSwitchToR3FView,
 }: {
   planetId: string;
   planetName: string;
   isOwner: boolean;
   ownerName: string | null;
   onExitToSpace: () => void;
+  onSwitchToR3FView?: () => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [selectedEntity, setSelectedEntity] = useState<BaseEntity | null>(null);
+  const [enteredLandmark, setEnteredLandmark] = useState<BaseEntity | null>(null);
+  const [nearbyLandmark, setNearbyLandmark] = useState<BaseEntity | null>(null);
   const [enteringAtmosphere, setEnteringAtmosphere] = useState(true);
   const [cameraMode, setCameraMode] = useState<'character' | 'village' | 'globe'>(
     isOwner ? 'character' : 'globe',
   );
 
-  // Free Fire Character State
+  // Free Fire Character + Horseback State
   const [activeChar, setActiveChar] = useState<CharacterId>('alok');
   const [posture, setPosture] = useState<CharacterPosture>('stand');
+  const [isMounted, setIsMounted] = useState<boolean>(true);
+  const [activeTravelTarget, setActiveTravelTarget] = useState<string | null>(null);
   const [isSprinting, setIsSprinting] = useState(false);
   const [skillActive, setSkillActive] = useState(false);
   const [isEmoting, setIsEmoting] = useState(false);
@@ -910,9 +1616,11 @@ function EarthBase3DView({
   // Bridges from React UI buttons to the 60FPS Three.js loop
   const activeCharRef = useRef<CharacterId>('alok');
   const postureRef = useRef<CharacterPosture>('stand');
+  const isMountedRef = useRef<boolean>(true);
   const isSprintingRef = useRef(false);
   const skillActiveRef = useRef(false);
   const isEmotingRef = useRef(false);
+  const enteredLandmarkRef = useRef<BaseEntity | null>(null);
   const cameraModeRef = useRef<'character' | 'village' | 'globe'>(
     isOwner ? 'character' : 'globe',
   );
@@ -920,6 +1628,10 @@ function EarthBase3DView({
   const actionsBridgeRef = useRef<{
     triggerJump: () => void;
     setPostureState: (next: CharacterPosture) => void;
+    toggleMount: () => void;
+    rideToLandmark: (landmarkId: string) => void;
+    enterLandmarkBase: (landmarkId: string) => void;
+    exitLandmarkBase: () => void;
     switchCharacter: (id: CharacterId) => void;
     activateSkill: () => void;
     triggerEmote: () => void;
@@ -952,16 +1664,24 @@ function EarthBase3DView({
     container.innerHTML = '';
 
     const isMobile = window.innerWidth < 768;
+    const realisticTex = getRealisticWorldTextures();
 
-    /* ---------- 1. SCENE, SPACE STARFIELD & CAMERA ---------- */
+    /* ---------- 1. SCENE, HDR PMREM ENVIRONMENT, ATMOSPHERIC SKY DOME & LIGHTING ---------- */
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x02040a);
+    scene.background = new THREE.Color(0x040b16);
+
+    const planetOverworldGroup = new THREE.Group();
+    scene.add(planetOverworldGroup);
+
+    const squareBaseContainerGroup = new THREE.Group();
+    squareBaseContainerGroup.visible = false;
+    scene.add(squareBaseContainerGroup);
 
     const camera = new THREE.PerspectiveCamera(
-      45,
+      46,
       window.innerWidth / window.innerHeight,
-      0.5,
-      2000,
+      0.35,
+      2200,
     );
     camera.position.set(0, R_PLANET + 115, 95);
 
@@ -969,26 +1689,34 @@ function EarthBase3DView({
       antialias: !isMobile,
       powerPreference: 'high-performance',
     });
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, isMobile ? 1.5 : 2));
     renderer.shadowMap.enabled = !isMobile;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.15;
+    renderer.toneMappingExposure = 1.12;
     container.appendChild(renderer.domElement);
+
+    // Generate Real-Time PBR Environment Reflections (Sky, Sun & Ground Bounce)
+    const pmremGenerator = new THREE.PMREMGenerator(renderer);
+    pmremGenerator.compileEquirectangularShader();
+    const envRT = pmremGenerator.fromEquirectangular(realisticTex.envEquirectTexture);
+    scene.environment = envRT.texture;
+    scene.environmentIntensity = 0.68;
 
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.07;
-    controls.target.set(0, isOwner ? R_VILLAGE : 0, 0);
-    controls.minDistance = 4.5;
-    controls.maxDistance = 260;
+    controls.target.set(0, isOwner ? R_PLANET + 1.2 : 0, 0);
+    controls.minDistance = 3.2;
+    controls.maxDistance = 280;
     controls.touches = {
       ONE: THREE.TOUCH.ROTATE,
       TWO: THREE.TOUCH.DOLLY_PAN,
     };
 
-    // Background Starfield around the Planet
+    // Deep-Space Background Starfield (visible when zoomed out to Globe mode)
     const starCount = isMobile ? 1800 : 3500;
     const starGeo = new THREE.BufferGeometry();
     const starPos = new Float32Array(starCount * 3);
@@ -1001,413 +1729,946 @@ function EarthBase3DView({
       starPos[i * 3 + 2] = r * Math.sin(phi) * Math.sin(theta);
     }
     starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3));
-    scene.add(
+    planetOverworldGroup.add(
       new THREE.Points(
         starGeo,
         new THREE.PointsMaterial({ color: 0xe2e8f0, size: 1.4, transparent: true, opacity: 0.8 }),
       ),
     );
 
-    const hemiLight = new THREE.HemisphereLight(0xe0f2fe, 0x1e293b, 0.95);
+    // Bright Blue Daytime Sky Dome with Fluffy White Cumulus Clouds (matching Image 2 i1_9536f7ba.jpg)
+    const sunDirNormalized = new THREE.Vector3(90, 145, 80).normalize();
+    const skyDomeMat = new THREE.ShaderMaterial({
+      uniforms: {
+        uSunDir: { value: sunDirNormalized },
+        uOpacity: { value: isOwner ? 1.0 : 0.0 },
+        uTime: { value: 0.0 },
+      },
+      vertexShader: `
+        varying vec3 vWorldDir;
+        void main() {
+          vec4 wp = modelMatrix * vec4(position, 1.0);
+          vWorldDir = normalize(wp.xyz - vec3(0.0, ${R_PLANET.toFixed(1)}, 0.0));
+          gl_Position = projectionMatrix * viewMatrix * wp;
+        }
+      `,
+      fragmentShader: `
+        uniform vec3 uSunDir;
+        uniform float uOpacity;
+        uniform float uTime;
+        varying vec3 vWorldDir;
+
+        float cloudHash(vec2 p) {
+          return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
+        }
+        float cloudNoise(vec2 p) {
+          vec2 i = floor(p);
+          vec2 f = fract(p);
+          f = f * f * (3.0 - 2.0 * f);
+          float a = cloudHash(i);
+          float b = cloudHash(i + vec2(1.0, 0.0));
+          float c = cloudHash(i + vec2(0.0, 1.0));
+          float d = cloudHash(i + vec2(1.0, 1.0));
+          return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+        }
+
+        void main() {
+          vec3 dir = normalize(vWorldDir);
+          float y = clamp(dir.y, -0.25, 1.0);
+          vec3 zenithCol = vec3(0.24, 0.56, 0.88);
+          vec3 midSkyCol = vec3(0.46, 0.75, 0.96);
+          vec3 horizonCol = vec3(0.76, 0.89, 0.98);
+          vec3 warmGlow = vec3(0.99, 0.88, 0.62);
+
+          vec3 sky = mix(horizonCol, midSkyCol, smoothstep(-0.06, 0.28, y));
+          sky = mix(sky, zenithCol, smoothstep(0.28, 0.88, y));
+
+          // Fluffy White Cumulus Clouds in the Upper Sky (matching Image 2 i1_9536f7ba.jpg)
+          if (y > 0.03) {
+            vec2 uv = dir.xz / (y + 0.32) * 2.2 + vec2(uTime * 0.015, 0.0);
+            float n = cloudNoise(uv) * 0.55 + cloudNoise(uv * 2.1 + 1.7) * 0.30 + cloudNoise(uv * 4.3 - 0.8) * 0.15;
+            float cloudMask = smoothstep(0.50, 0.74, n) * smoothstep(0.03, 0.18, y) * smoothstep(0.88, 0.35, y);
+            vec3 cloudTop = vec3(0.98, 0.99, 1.0);
+            vec3 cloudBase = vec3(0.76, 0.84, 0.92);
+            vec3 cloudCol = mix(cloudBase, cloudTop, smoothstep(0.52, 0.78, n));
+            sky = mix(sky, cloudCol, cloudMask * 0.92);
+          }
+
+          float sunAmt = max(dot(dir, uSunDir), 0.0);
+          sky += warmGlow * pow(sunAmt, 7.0) * 0.32;
+          sky += vec3(1.0, 0.98, 0.9) * smoothstep(0.996, 0.9995, sunAmt) * 1.8;
+
+          if (y < -0.02) {
+            sky = mix(sky, vec3(0.26, 0.52, 0.18), smoothstep(-0.02, -0.22, y));
+          }
+          gl_FragColor = vec4(sky, uOpacity);
+        }
+      `,
+      side: THREE.BackSide,
+      transparent: true,
+      depthWrite: false,
+    });
+    const skyDome = new THREE.Mesh(new THREE.SphereGeometry(420, 48, 32), skyDomeMat);
+    scene.add(skyDome);
+
+    const hemiLight = new THREE.HemisphereLight(0xe0f2fe, 0x3b6910, 0.96);
     scene.add(hemiLight);
 
-    const sunLight = new THREE.DirectionalLight(0xfff7ed, 2.4);
-    sunLight.position.set(85, 130, 75);
+    const sunLight = new THREE.DirectionalLight(0xfffbeb, 2.75);
+    sunLight.position.set(90, 145, 80);
     if (!isMobile) {
       sunLight.castShadow = true;
-      sunLight.shadow.mapSize.width = 1024;
-      sunLight.shadow.mapSize.height = 1024;
+      sunLight.shadow.mapSize.width = 2048;
+      sunLight.shadow.mapSize.height = 2048;
       sunLight.shadow.camera.near = 20;
       sunLight.shadow.camera.far = 260;
-      const d = 65;
+      const d = 48;
       sunLight.shadow.camera.left = -d;
       sunLight.shadow.camera.right = d;
       sunLight.shadow.camera.top = d;
       sunLight.shadow.camera.bottom = -d;
-      sunLight.shadow.bias = -0.0005;
+      sunLight.shadow.bias = -0.00035;
+      sunLight.shadow.normalBias = 0.02;
     }
     scene.add(sunLight);
 
-    const rimLight = new THREE.DirectionalLight(0x38bdf8, 0.55);
-    rimLight.position.set(-90, -70, -80);
+    const rimLight = new THREE.DirectionalLight(0xbae6fd, 0.55);
+    rimLight.position.set(-95, -75, -85);
     scene.add(rimLight);
 
-    /* ---------- 2. PHOTOREALISTIC SPHERICAL EARTH GLOBE (NO BLOCKY CHUNKS) ---------- */
+    /* ---------- 2. WHOLE-PLANET TOPOGRAPHY (~82% LUSH GREEN LAND + IMAGE-2 CHISELED WHITE/GREY MOUNTAINS) ---------- */
     const UP = new THREE.Vector3(0, 1, 0);
-    function getSphereTransform(gx: number, gz: number, radiusOffset = 0) {
-      const normal = new THREE.Vector3(gx * TILE_ANGLE, 1.0, gz * TILE_ANGLE).normalize();
-      const position = normal.clone().multiplyScalar(R_VILLAGE + radiusOffset);
-      const quaternion = new THREE.Quaternion().setFromUnitVectors(UP, normal);
-      return { normal, position, quaternion };
+    const planetSeed =
+      (EARTH_REALM_PROFILES[planetId]?.seedOffsetU || 3.7) * 0.17;
+
+    function getRoadProximity(gx: number, gz: number): { dist: number; roadBlend: number } {
+      let minDistSq = Infinity;
+      for (let r = 0; r < PLANET_ROAD_SEGMENTS.length; r++) {
+        const pts = PLANET_ROAD_SEGMENTS[r].points;
+        for (let i = 0; i < pts.length - 1; i++) {
+          const ax = pts[i][0],
+            az = pts[i][1];
+          const bx = pts[i + 1][0],
+            bz = pts[i + 1][1];
+          const abx = bx - ax,
+            abz = bz - az;
+          const lenSq = abx * abx + abz * abz;
+          let t = lenSq > 0 ? ((gx - ax) * abx + (gz - az) * abz) / lenSq : 0;
+          t = clamp(t, 0, 1);
+          const px = ax + t * abx;
+          const pz = az + t * abz;
+          const dSq = (gx - px) * (gx - px) + (gz - pz) * (gz - pz);
+          if (dSq < minDistSq) minDistSq = dSq;
+        }
+      }
+      const dist = Math.sqrt(minDistSq);
+      const roadWidth = 0.95;
+      const roadBlend = dist < roadWidth ? Math.pow(1 - dist / roadWidth, 1.45) : 0;
+      return { dist, roadBlend };
     }
 
-    const planetMaps = generatePlanetTextures(planetId);
-    const globeSegments = isMobile ? 64 : 96;
-    const globeGeo = new THREE.SphereGeometry(R_VILLAGE - 0.06, globeSegments, globeSegments);
-    const globeMat = new THREE.MeshPhongMaterial({
-      map: planetMaps.map,
-      bumpMap: planetMaps.bumpMap,
-      bumpScale: 0.35,
-      specularMap: planetMaps.specularMap ?? undefined,
-      specular: new THREE.Color(0x66aacc),
-      shininess: 38,
+    function fbmTerrainNoise(x: number, z: number): number {
+      const p1 = Math.sin(x * 0.14 + planetSeed) * Math.cos(z * 0.14 - planetSeed * 0.7);
+      const p2 = Math.sin(x * 0.31 + z * 0.27 + 1.4) * 0.45;
+      const p3 = (1.0 - Math.abs(Math.sin(x * 0.62 - z * 0.54))) * 0.26;
+      const p4 = Math.sin(x * 1.35 + z * 1.15) * 0.08;
+      return p1 * 0.62 + p2 + p3 + p4;
+    }
+
+    function evaluateRawElevation(gx: number, gz: number, roadBlend: number): number {
+      const fbm = fbmTerrainNoise(gx, gz);
+
+      // Lush Rolling Green Land Across Most of the Region (matching Image 2 i1_9536f7ba.jpg)
+      let elev = 0.72 + fbm * 0.46;
+
+      // 1. Scenic Southern Harbor Bay (around gx: 3.8, gz: 20.2) for Grand Market & Sailboat
+      const southBayDist = Math.hypot((gx - 3.8) * 0.78, gz - 20.4);
+      if (southBayDist < 7.2) {
+        const bayFactor = Math.pow(1 - southBayDist / 7.2, 1.65);
+        elev -= bayFactor * 2.15;
+      }
+
+      // 2. Scenic Emerald Mountain Lake in the West (around gx: -21.5, gz: 13.5)
+      const westLakeDist = Math.hypot(gx + 21.5, gz - 13.5);
+      if (westLakeDist < 5.6) {
+        elev -= Math.pow(1 - westLakeDist / 5.6, 1.6) * 1.75;
+      }
+
+      // 3. Iconic Chiseled Grey-White Limestone Mountain Range in the North (Image 2 i1_9536f7ba.jpg)
+      if (gz < -10.5) {
+        const northDepth = Math.min(1, (-10.5 - gz) / 9.5);
+        const ridge1 = 1.0 - Math.abs(Math.sin(gx * 0.28 + 0.35) * Math.cos(gz * 0.24));
+        const chiseledFacet = Math.abs(Math.cos(gx * 0.65 - gz * 0.48)) * 1.35;
+        elev += northDepth * (1.35 + Math.pow(ridge1, 1.45) * 3.1 + chiseledFacet);
+      }
+
+      // 4. Eastern & Western Chiseled Limestone Mountain Massifs
+      const eastPeakDist = Math.hypot(gx - 18.5, gz + 11.5);
+      if (eastPeakDist < 8.4) {
+        const facet = 0.85 + 0.45 * (1 - Math.abs(Math.sin(gx * 0.82 + gz * 0.68)));
+        elev += Math.pow(1 - eastPeakDist / 8.4, 1.3) * 3.45 * facet;
+      }
+      const westPeakDist = Math.hypot(gx + 19.5, gz + 1.5);
+      if (westPeakDist < 7.8) {
+        const facet = 0.85 + 0.42 * (1 - Math.abs(Math.cos(gx * 0.78 - gz * 0.82)));
+        elev += Math.pow(1 - westPeakDist / 7.8, 1.3) * 3.2 * facet;
+      }
+
+      // 5. Gently terrace the ground immediately under the 6 Landmarks
+      for (let i = 0; i < INITIAL_BASE_ENTITIES.length; i++) {
+        const lm = INITIAL_BASE_ENTITIES[i];
+        const dLm = Math.hypot(gx - lm.gridX, gz - lm.gridZ);
+        const targetElev =
+          lm.id === 'market'
+            ? 0.26
+            : lm.id === 'vault'
+              ? 1.72
+              : lm.id === 'library'
+                ? 1.15
+                : lm.id === 'army_camp'
+                  ? 1.22
+                  : lm.id === 'crucible'
+                    ? 1.28
+                    : 0.78;
+        if (dLm < 3.4) {
+          const blend = Math.pow(1 - dLm / 3.4, 1.5);
+          elev = THREE.MathUtils.lerp(elev, targetElev, blend * 0.86);
+        }
+      }
+
+      if (roadBlend > 0 && elev > 0.05) {
+        elev = Math.max(0.18, elev - roadBlend * 0.05);
+      }
+
+      return elev;
+    }
+
+    function evaluateSurfaceAtGrid(gx: number, gz: number): {
+      elevation: number;
+      slope: number;
+      roadBlend: number;
+      biome: 'ocean' | 'beach' | 'meadow' | 'forest' | 'road' | 'highland' | 'snow';
+      color: [number, number, number];
+    } {
+      const rFromCenter = Math.hypot(gx, gz);
+      const { roadBlend } = rFromCenter < 24.5 ? getRoadProximity(gx, gz) : { roadBlend: 0 };
+      const elev = evaluateRawElevation(gx, gz, roadBlend);
+
+      const eps = 0.22;
+      const ex = evaluateRawElevation(gx + eps, gz, 0) - elev;
+      const ez = evaluateRawElevation(gx, gz + eps, 0) - elev;
+      const slope = Math.hypot(ex, ez) / eps;
+
+      let color: [number, number, number];
+      let biome: 'ocean' | 'beach' | 'meadow' | 'forest' | 'road' | 'highland' | 'snow' = 'meadow';
+
+      const microNoise =
+        Math.sin(gx * 2.3 + gz * 1.9) * 0.02 + Math.cos(gx * 5.1 - gz * 4.7) * 0.012;
+
+      if (elev < 0.0) {
+        biome = 'ocean';
+        const depthT = clamp(-elev / 1.5, 0, 1);
+        color = [
+          THREE.MathUtils.lerp(0.16, 0.03, depthT),
+          THREE.MathUtils.lerp(0.56, 0.22, depthT),
+          THREE.MathUtils.lerp(0.68, 0.42, depthT),
+        ];
+      } else if (elev < 0.28) {
+        biome = 'beach';
+        const sandT = clamp(elev / 0.28, 0, 1);
+        color = [
+          THREE.MathUtils.lerp(0.76, 0.84, sandT) + microNoise,
+          THREE.MathUtils.lerp(0.58, 0.68, sandT) + microNoise,
+          THREE.MathUtils.lerp(0.36, 0.44, sandT) + microNoise,
+        ];
+      } else if (elev < 1.68) {
+        // Lush Sunlit Green Rolling Meadows & Forests (matching Image 2 i1_9536f7ba.jpg)
+        const grassT = clamp((elev - 0.28) / 1.4, 0, 1);
+        const sunPatch = Math.sin(gx * 0.42 + 0.8) * Math.cos(gz * 0.42 - 0.4) * 0.5 + 0.5;
+        biome = sunPatch > 0.52 ? 'forest' : 'meadow';
+        color = [
+          THREE.MathUtils.lerp(0.33, 0.24, grassT) + sunPatch * 0.11 + microNoise,
+          THREE.MathUtils.lerp(0.61, 0.48, grassT) + sunPatch * 0.13 + microNoise,
+          THREE.MathUtils.lerp(0.09, 0.07, grassT) + microNoise * 0.4,
+        ];
+      } else {
+        // Chiseled Grey-White Limestone Mountains (matching Image 2 i1_9536f7ba.jpg)
+        biome = elev > 2.65 ? 'snow' : 'highland';
+        const rockT = clamp((elev - 1.68) / 2.2, 0, 1);
+        const facetBand = Math.sin(gx * 2.8 - gz * 2.4) * 0.055;
+        color = [
+          THREE.MathUtils.lerp(0.64, 0.89, rockT) + facetBand,
+          THREE.MathUtils.lerp(0.68, 0.91, rockT) + facetBand,
+          THREE.MathUtils.lerp(0.74, 0.95, rockT) + facetBand,
+        ];
+      }
+
+      // Chiseled Grey-White Limestone Cliff Facets on Steep Slopes (Image 2 i1_9536f7ba.jpg)
+      if (elev > 1.05 && slope > 0.34 && roadBlend < 0.2) {
+        const cliffFactor = clamp((slope - 0.34) / 0.48, 0, 1);
+        const strata = Math.sin(elev * 9.0 + gx * 1.8) * 0.045;
+        const limestoneCol: [number, number, number] = [
+          0.74 + strata,
+          0.77 + strata,
+          0.83 + strata,
+        ];
+        color = [
+          THREE.MathUtils.lerp(color[0], limestoneCol[0], cliffFactor * 0.92),
+          THREE.MathUtils.lerp(color[1], limestoneCol[1], cliffFactor * 0.92),
+          THREE.MathUtils.lerp(color[2], limestoneCol[2], cliffFactor * 0.92),
+        ];
+      }
+
+      // Warm Golden-Earth Horseback Trail Shading
+      if (roadBlend > 0.06 && elev >= 0.05) {
+        biome = 'road';
+        const cobblePattern = Math.sin(gx * 5.5) * Math.cos(gz * 5.5) * 0.04;
+        const rCol: [number, number, number] = [
+          0.68 + cobblePattern,
+          0.52 + cobblePattern * 0.85,
+          0.32 + cobblePattern * 0.7,
+        ];
+        const mixF = clamp(roadBlend * 0.92, 0, 1);
+        color = [
+          THREE.MathUtils.lerp(color[0], rCol[0], mixF),
+          THREE.MathUtils.lerp(color[1], rCol[1], mixF),
+          THREE.MathUtils.lerp(color[2], rCol[2], mixF),
+        ];
+      }
+
+      return { elevation: elev, slope, roadBlend, biome, color };
+    }
+
+    function getSphereTransform(gx: number, gz: number, heightAboveGround = 0) {
+      const normal = new THREE.Vector3(gx * TILE_ANGLE, 1.0, gz * TILE_ANGLE).normalize();
+      const surf = evaluateSurfaceAtGrid(gx, gz);
+      const groundElev = Math.max(-0.12, surf.elevation);
+      const position = normal.clone().multiplyScalar(R_PLANET + groundElev + heightAboveGround);
+      const quaternion = new THREE.Quaternion().setFromUnitVectors(UP, normal);
+      return { normal, position, quaternion, groundElev, biome: surf.biome };
+    }
+
+    // A. Build the Global 3D Planetary Sphere with ~82% Lush Green Land & Chiseled Limestone Mountains!
+    const globeGeo = new THREE.SphereGeometry(
+      R_PLANET,
+      isMobile ? 96 : 144,
+      isMobile ? 72 : 108,
+    );
+    const gPos = globeGeo.attributes.position;
+    const gColors = new Float32Array(gPos.count * 3);
+    const gNorm = new THREE.Vector3();
+
+    for (let i = 0; i < gPos.count; i++) {
+      gNorm.fromBufferAttribute(gPos, i).normalize();
+      const gSurf = evaluateGlobalPlanetSurface(gNorm.x, gNorm.y, gNorm.z, planetSeed);
+      // Blend smoothly with the detailed northern playable hemisphere around (0, 1, 0)
+      const topDist = Math.acos(clamp(gNorm.y, -1, 1));
+      const patchMask = topDist < 0.62 ? THREE.MathUtils.smoothstep(topDist, 0.42, 0.62) : 1.0;
+      const disp = THREE.MathUtils.lerp(0.15, gSurf.displacement, patchMask);
+      gPos.setXYZ(
+        i,
+        gNorm.x * (R_PLANET + disp),
+        gNorm.y * (R_PLANET + disp),
+        gNorm.z * (R_PLANET + disp),
+      );
+      gColors[i * 3] = gSurf.color[0];
+      gColors[i * 3 + 1] = gSurf.color[1];
+      gColors[i * 3 + 2] = gSurf.color[2];
+    }
+    globeGeo.setAttribute('color', new THREE.BufferAttribute(gColors, 3));
+    globeGeo.computeVertexNormals();
+
+    const globeMat = new THREE.MeshStandardMaterial({
+      vertexColors: true,
+      bumpMap: realisticTex.terrainDetailBump,
+      bumpScale: 0.08,
+      roughness: 0.84,
+      metalness: 0.03,
+      flatShading: false,
     });
     const earthTerrainMesh = new THREE.Mesh(globeGeo, globeMat);
     earthTerrainMesh.receiveShadow = true;
-    scene.add(earthTerrainMesh);
+    planetOverworldGroup.add(earthTerrainMesh);
 
-    // Smooth Natural Sanctuary Ground Pad at North Pole for Base & Characters
-    const clearingCapGeo = new THREE.CylinderGeometry(13.2, 14.4, 0.45, 64);
-    const clearingCapMat = new THREE.MeshStandardMaterial({
-      color: 0x2d6a3e,
-      roughness: 0.88,
+    // High-Resolution Sculpted Upper Hemisphere Terrain Patch (Seamless Lush Land + Chiseled Mountains)
+    const contSegs = isMobile ? 140 : 210;
+    const continentGeo = new THREE.PlaneGeometry(66, 66, contSegs, contSegs);
+    const cPos = continentGeo.attributes.position;
+    const cColors = new Float32Array(cPos.count * 3);
+    const vNorm = new THREE.Vector3();
+
+    for (let i = 0; i < cPos.count; i++) {
+      const gx = cPos.getX(i);
+      const gz = -cPos.getY(i);
+      const rGrid = Math.hypot(gx, gz);
+      vNorm.set(gx * TILE_ANGLE, 1.0, gz * TILE_ANGLE).normalize();
+
+      const surf = evaluateSurfaceAtGrid(gx, gz);
+      const globalSurf = evaluateGlobalPlanetSurface(vNorm.x, vNorm.y, vNorm.z, planetSeed);
+      const edgeBlend = rGrid > 25.0 ? clamp((rGrid - 25.0) / 7.5, 0, 1) : 0.0;
+      const finalElev = THREE.MathUtils.lerp(
+        surf.elevation,
+        globalSurf.displacement - 0.04,
+        edgeBlend,
+      );
+
+      const worldPt = vNorm.multiplyScalar(R_PLANET + finalElev);
+      cPos.setXYZ(i, worldPt.x, worldPt.y, worldPt.z);
+
+      cColors[i * 3] = THREE.MathUtils.lerp(surf.color[0], globalSurf.color[0], edgeBlend);
+      cColors[i * 3 + 1] = THREE.MathUtils.lerp(surf.color[1], globalSurf.color[1], edgeBlend);
+      cColors[i * 3 + 2] = THREE.MathUtils.lerp(surf.color[2], globalSurf.color[2], edgeBlend);
+    }
+
+    continentGeo.setAttribute('color', new THREE.BufferAttribute(cColors, 3));
+    continentGeo.computeVertexNormals();
+
+    const continentMat = new THREE.MeshStandardMaterial({
+      vertexColors: true,
+      bumpMap: realisticTex.terrainDetailBump,
+      bumpScale: 0.075,
+      roughnessMap: realisticTex.terrainDetailBump,
+      roughness: 0.84,
       metalness: 0.02,
     });
-    const clearingCap = new THREE.Mesh(clearingCapGeo, clearingCapMat);
-    clearingCap.position.set(0, R_VILLAGE - 0.25, 0);
-    clearingCap.receiveShadow = true;
-    scene.add(clearingCap);
+    const continentMesh = new THREE.Mesh(continentGeo, continentMat);
+    continentMesh.receiveShadow = true;
+    continentMesh.castShadow = true;
+    planetOverworldGroup.add(continentMesh);
 
-    // Subtle stone sanctuary ring around clearing
-    const ringBorder = new THREE.Mesh(
-      new THREE.RingGeometry(13.0, 13.45, 64),
-      new THREE.MeshBasicMaterial({
-        color: 0x38bdf8,
-        side: THREE.DoubleSide,
-        transparent: true,
-        opacity: 0.32,
-      }),
-    );
-    ringBorder.rotation.x = -Math.PI / 2;
-    ringBorder.position.set(0, R_VILLAGE + 0.01, 0);
-    scene.add(ringBorder);
+    // B. Realistic Animated Normal-Mapped Ocean & Lake Sphere at Sea Level (R_PLANET)
+    const oceanGeo = new THREE.SphereGeometry(R_PLANET, isMobile ? 84 : 112, isMobile ? 64 : 84);
+    const oceanMat = new THREE.MeshPhysicalMaterial({
+      color: 0x0284c7,
+      emissive: 0x075985,
+      emissiveIntensity: 0.22,
+      normalMap: realisticTex.waterNormalMap,
+      normalScale: new THREE.Vector2(0.45, 0.45),
+      roughness: 0.09,
+      metalness: 0.12,
+      clearcoat: 1.0,
+      clearcoatRoughness: 0.06,
+      reflectivity: 0.95,
+      transparent: true,
+      opacity: 0.88,
+    });
+    const oceanSphere = new THREE.Mesh(oceanGeo, oceanMat);
+    oceanSphere.receiveShadow = true;
+    planetOverworldGroup.add(oceanSphere);
 
-    // Smooth Rayleigh Scattering Atmosphere Halo
+    // Smooth Rayleigh Scattering Outer Planetary Atmosphere Halo
     const atmoMesh = new THREE.Mesh(
-      new THREE.SphereGeometry(R_VILLAGE * 1.11, 64, 64),
+      new THREE.SphereGeometry(R_PLANET * 1.12, 64, 64),
       createAtmosphereMaterial(0x38bdf8, 0.88, 3.2),
     );
-    scene.add(atmoMesh);
+    planetOverworldGroup.add(atmoMesh);
 
-    /* ---------- 3. NATURAL TREES & ROCKS AROUND THE SANCTUARY ---------- */
-    function createPineTree(scale = 1) {
-      const group = new THREE.Group();
-      const trunk = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.11 * scale, 0.18 * scale, 0.65 * scale, 7),
-        new THREE.MeshStandardMaterial({ color: 0x6e4720, roughness: 0.9 }),
-      );
-      trunk.position.y = 0.32 * scale;
-      trunk.castShadow = true;
-      group.add(trunk);
+    /* ---------- 3. WINDING COBBLESTONES, SIGNPOSTS & TRAIL LANTERNS ---------- */
+    const cobbleMat = new THREE.MeshStandardMaterial({
+      map: realisticTex.stoneTexture,
+      bumpMap: realisticTex.stoneTexture,
+      bumpScale: 0.04,
+      color: 0x94a3b8,
+      roughness: 0.82,
+    });
+    const postWoodMat = new THREE.MeshStandardMaterial({
+      map: realisticTex.barkTexture,
+      bumpMap: realisticTex.barkTexture,
+      bumpScale: 0.03,
+      color: 0x5c3a1e,
+      roughness: 0.85,
+    });
+    const lanternGlowMat = new THREE.MeshStandardMaterial({
+      color: 0xfef08a,
+      emissive: 0xf59e0b,
+      emissiveIntensity: 1.8,
+      roughness: 0.15,
+    });
 
-      const leafMat = new THREE.MeshStandardMaterial({ color: 0x245c18, roughness: 0.8 });
-      for (let i = 0; i < 3; i++) {
-        const cone = new THREE.Mesh(
-          new THREE.ConeGeometry((0.72 - i * 0.15) * scale, (0.9 - i * 0.12) * scale, 7),
-          leafMat,
-        );
-        cone.position.y = (0.8 + i * 0.45) * scale;
-        cone.castShadow = true;
-        group.add(cone);
+    function createTrailLanternPost() {
+      const g = new THREE.Group();
+      const stoneBase = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.14, 0.22, 8), cobbleMat);
+      stoneBase.position.y = 0.1;
+      g.add(stoneBase);
+
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.048, 0.068, 1.18, 8), postWoodMat);
+      pole.position.y = 0.58;
+      pole.castShadow = true;
+      g.add(pole);
+
+      const arm = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.05, 0.05), postWoodMat);
+      arm.position.set(0.13, 1.12, 0);
+      g.add(arm);
+
+      const lantern = new THREE.Mesh(new THREE.OctahedronGeometry(0.11, 1), lanternGlowMat);
+      lantern.position.set(0.25, 0.96, 0);
+      g.add(lantern);
+      return g;
+    }
+
+    PLANET_ROAD_SEGMENTS.forEach((seg) => {
+      const curvePts = seg.points.map(([px, pz]) => new THREE.Vector3(px, 0, pz));
+      const curve = new THREE.CatmullRomCurve3(curvePts);
+      const samples = 28;
+      for (let s = 1; s < samples; s++) {
+        const t = s / samples;
+        const pt = curve.getPoint(t);
+        const tangent = curve.getTangent(t);
+        const tf = getSphereTransform(pt.x, pt.z, 0.008);
+        if (tf.groundElev < 0.05) continue;
+
+        const slab = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.39, 0.045, 8), cobbleMat);
+        slab.scale.set(1.15, 1, 0.84);
+        slab.position.copy(tf.position);
+        slab.quaternion.copy(tf.quaternion);
+        slab.rotateY(Math.atan2(tangent.x, tangent.z));
+        slab.receiveShadow = true;
+        planetOverworldGroup.add(slab);
+
+        if (s % 7 === 0) {
+          const sideX = pt.x + -tangent.z * 0.86;
+          const sideZ = pt.z + tangent.x * 0.86;
+          const lTf = getSphereTransform(sideX, sideZ, -0.02);
+          if (lTf.groundElev > 0.15) {
+            const lanternPost = createTrailLanternPost();
+            lanternPost.position.copy(lTf.position);
+            lanternPost.quaternion.copy(lTf.quaternion);
+            lanternPost.rotateY(Math.atan2(-tangent.z, tangent.x));
+            planetOverworldGroup.add(lanternPost);
+          }
+        }
       }
-      return group;
-    }
+    });
 
-    function createOakTree(scale = 1) {
-      const group = new THREE.Group();
-      const trunk = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.13 * scale, 0.2 * scale, 0.75 * scale, 7),
-        new THREE.MeshStandardMaterial({ color: 0x784c24, roughness: 0.9 }),
-      );
-      trunk.position.y = 0.38 * scale;
-      trunk.castShadow = true;
-      group.add(trunk);
-
-      const crownMat = new THREE.MeshStandardMaterial({ color: 0x4ca626, roughness: 0.78 });
-      const mainCrown = new THREE.Mesh(new THREE.DodecahedronGeometry(0.7 * scale, 1), crownMat);
-      mainCrown.position.y = 1.05 * scale;
-      mainCrown.castShadow = true;
-      group.add(mainCrown);
-      return group;
-    }
+    /* ---------- 4. IMAGE-2 SIGNATURE TREES (FLUTED SPRUCE & BUSHY ROUND OAK) ACROSS THE WHOLE PLANET ---------- */
+    const sharedBarkMat = new THREE.MeshStandardMaterial({
+      map: realisticTex.barkTexture,
+      bumpMap: realisticTex.barkTexture,
+      bumpScale: 0.05,
+      color: 0x5c3d22,
+      roughness: 0.9,
+    });
 
     function createBoulder(scale = 1) {
       const rock = new THREE.Mesh(
         new THREE.DodecahedronGeometry(0.55 * scale, 1),
-        new THREE.MeshStandardMaterial({ color: 0x7c858e, roughness: 0.85 }),
+        new THREE.MeshStandardMaterial({
+          map: realisticTex.stoneTexture,
+          bumpMap: realisticTex.stoneTexture,
+          bumpScale: 0.06,
+          color: 0x94a3b8,
+          roughness: 0.86,
+        }),
       );
-      rock.scale.set(1.2, 0.75, 1.0);
-      rock.position.y = 0.25 * scale;
+      rock.scale.set(1.28, 0.72, 1.06);
+      rock.position.y = 0.18 * scale;
       rock.castShadow = true;
       rock.receiveShadow = true;
       return rock;
     }
 
-    for (let i = 0; i < 44; i++) {
-      const angle = (i / 44) * Math.PI * 2 + (Math.random() - 0.5) * 0.08;
-      const gridDist = 9.4 + Math.random() * 2.8;
-      const gx = Math.cos(angle) * gridDist;
-      const gz = Math.sin(angle) * gridDist;
-      const { position, quaternion } = getSphereTransform(gx, gz, -0.04);
+    let natureSeed = 1337;
+    const nextRand = () => {
+      natureSeed = (natureSeed * 16807) % 2147483647;
+      return (natureSeed - 1) / 2147483646;
+    };
 
-      const s = 0.85 + Math.random() * 0.45;
-      const tree = i % 3 === 0 ? createOakTree(s) : createPineTree(s);
-      tree.position.copy(position);
-      tree.quaternion.copy(quaternion);
-      scene.add(tree);
+    // Scatter 330+ Image-2 Fluted Drooping Spruce & Bushy Round Oak Trees across the primary region
+    const treeTargetCount = isMobile ? 210 : 335;
+    for (let i = 0; i < treeTargetCount; i++) {
+      const angle = nextRand() * Math.PI * 2;
+      const dist = 2.5 + Math.pow(nextRand(), 0.78) * 24.5;
+      const gx = Math.cos(angle) * dist;
+      const gz = Math.sin(angle) * dist;
+
+      let nearLandmark = false;
+      for (let l = 0; l < INITIAL_BASE_ENTITIES.length; l++) {
+        const lm = INITIAL_BASE_ENTITIES[l];
+        if (Math.hypot(gx - lm.gridX, gz - lm.gridZ) < 3.3) {
+          nearLandmark = true;
+          break;
+        }
+      }
+      if (nearLandmark) continue;
+
+      const { dist: roadDist } = getRoadProximity(gx, gz);
+      if (roadDist < 1.18) continue;
+
+      const surf = evaluateSurfaceAtGrid(gx, gz);
+      if (surf.elevation < 0.18 || surf.elevation > 2.35) continue;
+
+      const tf = getSphereTransform(gx, gz, -0.05);
+      const scale = 0.82 + nextRand() * 0.75;
+
+      // Exact mix from Image 2 (i1_9536f7ba.jpg): Tall Fluted Drooping Spruce stands + Lush Rounded Bushy Oaks!
+      const r = nextRand();
+      let prop: THREE.Object3D;
+      if (r < 0.68) {
+        prop = createFlutedSpruceTree(scale * 1.12);
+      } else if (r < 0.94) {
+        prop = createBushyRoundOakTree(scale * 1.05);
+      } else {
+        prop = createBoulder(scale * 0.85);
+      }
+
+      prop.position.copy(tf.position);
+      prop.quaternion.copy(tf.quaternion);
+      prop.rotateY(nextRand() * Math.PI * 2);
+      planetOverworldGroup.add(prop);
     }
 
-    // Optional Custom Planet GLB Model Slot (/models/<planetId>.glb) for user-created 3D models
+    // Also scatter 180+ Fluted Spruce & Bushy Oak Trees across the REST of the 3D Globe so the whole planet is forested!
+    const globalTreeCount = isMobile ? 110 : 190;
+    const gTreeNorm = new THREE.Vector3();
+    for (let i = 0; i < globalTreeCount; i++) {
+      const u = nextRand();
+      const v = nextRand();
+      const theta = 2 * Math.PI * u;
+      const phi = Math.acos(2 * v - 1);
+      gTreeNorm.set(
+        Math.sin(phi) * Math.cos(theta),
+        Math.cos(phi),
+        Math.sin(phi) * Math.sin(theta),
+      ).normalize();
+
+      // Skip the top patch where detailed continent trees are already placed
+      if (gTreeNorm.y > 0.76) continue;
+
+      const gSurf = evaluateGlobalPlanetSurface(gTreeNorm.x, gTreeNorm.y, gTreeNorm.z, planetSeed);
+      if (!gSurf.isLand || gSurf.isMountain) continue;
+
+      const treeScale = 1.05 + nextRand() * 0.85;
+      const tree =
+        nextRand() < 0.68
+          ? createFlutedSpruceTree(treeScale)
+          : createBushyRoundOakTree(treeScale);
+      tree.position.copy(gTreeNorm).multiplyScalar(R_PLANET + gSurf.displacement - 0.05);
+      tree.quaternion.setFromUnitVectors(UP, gTreeNorm);
+      tree.rotateY(nextRand() * Math.PI * 2);
+      planetOverworldGroup.add(tree);
+    }
+
+    // Scatter 2,200+ Instanced 3D Grass Tufts across Meadows & Valley Trails
+    const grassCount = isMobile ? 1100 : 2200;
+    const grassBladeGeo = new THREE.ConeGeometry(0.08, 0.38, 4);
+    grassBladeGeo.translate(0, 0.17, 0);
+    const grassMat = new THREE.MeshStandardMaterial({
+      color: 0x579415,
+      roughness: 0.76,
+    });
+    const grassInstanced = new THREE.InstancedMesh(grassBladeGeo, grassMat, grassCount);
+    grassInstanced.receiveShadow = true;
+    const dummyGrass = new THREE.Object3D();
+    const grassColor = new THREE.Color();
+    let placedGrass = 0;
+
+    for (let g = 0; g < grassCount * 2 && placedGrass < grassCount; g++) {
+      const ang = nextRand() * Math.PI * 2;
+      const rad = 1.8 + Math.pow(nextRand(), 0.72) * 22.0;
+      const gx = Math.cos(ang) * rad;
+      const gz = Math.sin(ang) * rad;
+      const surf = evaluateSurfaceAtGrid(gx, gz);
+      if (surf.elevation < 0.32 || surf.elevation > 1.65 || surf.roadBlend > 0.25 || surf.slope > 0.42) {
+        continue;
+      }
+      const tf = getSphereTransform(gx, gz, -0.02);
+      dummyGrass.position.copy(tf.position);
+      dummyGrass.quaternion.copy(tf.quaternion);
+      dummyGrass.rotateY(nextRand() * Math.PI * 2);
+      dummyGrass.rotateZ((nextRand() - 0.5) * 0.28);
+      const s = 0.65 + nextRand() * 0.85;
+      dummyGrass.scale.set(s, s * (0.8 + nextRand() * 0.5), s);
+      dummyGrass.updateMatrix();
+      grassInstanced.setMatrixAt(placedGrass, dummyGrass.matrix);
+
+      grassColor.setHSL(0.25 + (nextRand() - 0.5) * 0.04, 0.68, 0.32 + nextRand() * 0.12);
+      grassInstanced.setColorAt(placedGrass, grassColor);
+      placedGrass++;
+    }
+    grassInstanced.count = placedGrass;
+    grassInstanced.instanceMatrix.needsUpdate = true;
+    if (grassInstanced.instanceColor) grassInstanced.instanceColor.needsUpdate = true;
+    planetOverworldGroup.add(grassInstanced);
+
+    // Optional Custom Planet GLB Model Slot (/models/<planetId>.glb)
     const customModelLoader = new GLTFLoader();
     customModelLoader.load(
       `/models/${planetId}.glb`,
       (gltf) => {
         const customModel = gltf.scene;
-        const { position, quaternion } = getSphereTransform(0, -4, 0.05);
+        const { position, quaternion } = getSphereTransform(0, -4, 0.02);
         customModel.position.copy(position);
         customModel.quaternion.copy(quaternion);
-        scene.add(customModel);
+        planetOverworldGroup.add(customModel);
       },
       undefined,
-      () => {
-        // Silently skip if user hasn't uploaded /models/<planetId>.glb yet
-      },
+      () => {},
     );
 
-    /* ---------- 4. STARTER BUILDINGS ON THE SPHERE ---------- */
+    /* ---------- 5. REALISTIC ARCHITECTURAL PLANETARY LANDMARKS (EMBEDDED IN TERRAIN) ---------- */
     const clickableMeshes: THREE.Object3D[] = [];
     const animatedParts: {
-      cannonTurret?: THREE.Object3D;
-      elixirLiquid?: THREE.Object3D;
-      mineWheel?: THREE.Object3D;
-      townHallCrystal?: THREE.Object3D;
+      sanctumCrystal?: THREE.Object3D;
+      crucibleMonolithOrb?: THREE.Object3D;
       campfireFlame?: THREE.Object3D;
+      warCampFlame?: THREE.Object3D;
+      harborBoat?: THREE.Object3D;
     } = {};
 
-    const S = 0.48;
+    const S = 0.52;
 
-    function buildEntityMesh(entity: BaseEntity): THREE.Group {
+    function buildLandmarkMesh(entity: BaseEntity): THREE.Group {
       const root = new THREE.Group();
       const inner = new THREE.Group();
       inner.scale.setScalar(S);
       root.add(inner);
 
-      const footprintSize = entity.size * 2.0;
+      // Natural stone terrace ring foundation embedded deep (-0.24) into the hillside
+      const naturalFoundation = new THREE.Mesh(
+        new THREE.CylinderGeometry(2.65, 3.15, 0.68, 16),
+        new THREE.MeshStandardMaterial({
+          map: realisticTex.stoneTexture,
+          bumpMap: realisticTex.stoneTexture,
+          bumpScale: 0.06,
+          color: entity.id === 'market' ? 0xc2a675 : 0x64748b,
+          roughness: 0.88,
+        }),
+      );
+      naturalFoundation.position.y = -0.24;
+      naturalFoundation.receiveShadow = true;
+      inner.add(naturalFoundation);
 
-      if (entity.category !== 'obstacle') {
-        const pad = new THREE.Mesh(
-          new THREE.BoxGeometry(footprintSize * 0.92, 0.3, footprintSize * 0.92),
-          new THREE.MeshStandardMaterial({ color: 0x8b939c, roughness: 0.85 }),
-        );
-        pad.position.y = 0.12;
-        pad.castShadow = true;
-        pad.receiveShadow = true;
-        inner.add(pad);
-      }
-
-      if (entity.id === 'town_hall') {
-        const walls = new THREE.Mesh(
-          new THREE.BoxGeometry(4.2, 2.4, 3.8),
-          new THREE.MeshStandardMaterial({ color: 0xd6c7b2, roughness: 0.8 }),
-        );
-        walls.position.y = 1.4;
-        walls.castShadow = true;
-        walls.receiveShadow = true;
-        inner.add(walls);
-
-        const pillarGeo = new THREE.BoxGeometry(0.45, 2.5, 0.45);
-        const woodMat = new THREE.MeshStandardMaterial({ color: 0x6e4720, roughness: 0.85 });
-        [
-          [-1.95, -1.75],
-          [1.95, -1.75],
-          [-1.95, 1.75],
-          [1.95, 1.75],
-        ].forEach(([px, pz]) => {
-          const p = new THREE.Mesh(pillarGeo, woodMat);
-          p.position.set(px, 1.4, pz);
-          p.castShadow = true;
-          inner.add(p);
+      if (entity.id === 'sanctum') {
+        // ⛺ SOVEREIGN SANCTUM (Central Meadow Hearth & Timber Pagoda Pavilion)
+        const roofMat = new THREE.MeshPhysicalMaterial({
+          map: realisticTex.stoneTexture,
+          color: 0x0f766e,
+          roughness: 0.42,
+          clearcoat: 0.35,
         });
 
-        const roof = new THREE.Mesh(
-          new THREE.ConeGeometry(3.4, 2.0, 4),
-          new THREE.MeshStandardMaterial({ color: 0xd95f18, roughness: 0.75 }),
-        );
-        roof.position.y = 3.6;
-        roof.rotation.y = Math.PI / 4;
-        roof.castShadow = true;
-        inner.add(roof);
+        [
+          [-1.7, -1.7],
+          [1.7, -1.7],
+          [-1.7, 1.7],
+          [1.7, 1.7],
+        ].forEach(([px, pz]) => {
+          const basePlinth = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.28, 0.32, 0.3, 8),
+            cobbleMat,
+          );
+          basePlinth.position.set(px, 0.15, pz);
+          inner.add(basePlinth);
 
-        const door = new THREE.Mesh(
-          new THREE.BoxGeometry(1.1, 1.5, 0.2),
-          new THREE.MeshBasicMaterial({ color: 0xffcf40 }),
-        );
-        door.position.set(0, 1.0, 1.9);
-        inner.add(door);
+          const pillar = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.18, 0.22, 2.5, 10),
+            sharedBarkMat,
+          );
+          pillar.position.set(px, 1.25, pz);
+          pillar.castShadow = true;
+          inner.add(pillar);
+        });
+
+        const pagodaRoof = new THREE.Mesh(new THREE.ConeGeometry(2.95, 1.45, 8), roofMat);
+        pagodaRoof.position.y = 3.05;
+        pagodaRoof.castShadow = true;
+        inner.add(pagodaRoof);
+
+        const upperRoof = new THREE.Mesh(new THREE.ConeGeometry(1.9, 1.15, 8), roofMat);
+        upperRoof.position.y = 4.05;
+        upperRoof.castShadow = true;
+        inner.add(upperRoof);
 
         const crystal = new THREE.Mesh(
-          new THREE.OctahedronGeometry(0.55, 0),
-          new THREE.MeshStandardMaterial({
+          new THREE.OctahedronGeometry(0.45, 1),
+          new THREE.MeshPhysicalMaterial({
             color: 0x38bdf8,
             emissive: 0x0284c7,
-            emissiveIntensity: 0.8,
-            roughness: 0.2,
+            emissiveIntensity: 1.1,
+            roughness: 0.08,
+            transmission: 0.6,
+            clearcoat: 1.0,
           }),
         );
-        crystal.position.y = 5.2;
+        crystal.position.y = 5.1;
         inner.add(crystal);
-        animatedParts.townHallCrystal = crystal;
-      } else if (entity.id === 'gold_mine_1') {
-        const mound = new THREE.Mesh(
-          new THREE.ConeGeometry(1.5, 1.5, 7),
-          new THREE.MeshStandardMaterial({ color: 0x6b7280, roughness: 0.9 }),
-        );
-        mound.position.y = 0.9;
-        mound.castShadow = true;
-        inner.add(mound);
+        animatedParts.sanctumCrystal = crystal;
 
-        const goldMat = new THREE.MeshStandardMaterial({
-          color: 0xfacc15,
-          metalness: 0.65,
-          roughness: 0.25,
-          emissive: 0xca8a04,
-          emissiveIntensity: 0.2,
-        });
-        for (let i = 0; i < 6; i++) {
-          const nugget = new THREE.Mesh(new THREE.DodecahedronGeometry(0.28, 0), goldMat);
-          const a = (i / 6) * Math.PI * 2;
-          nugget.position.set(Math.cos(a) * 0.9, 0.45, Math.sin(a) * 0.9);
-          nugget.castShadow = true;
-          inner.add(nugget);
-        }
-
-        const wheel = new THREE.Mesh(
-          new THREE.TorusGeometry(0.7, 0.12, 8, 16),
-          new THREE.MeshStandardMaterial({ color: 0x784c24, roughness: 0.8 }),
+        const hearthRing = new THREE.Mesh(
+          new THREE.TorusGeometry(0.68, 0.18, 10, 16),
+          cobbleMat,
         );
-        wheel.position.set(0, 1.9, 0);
-        wheel.castShadow = true;
-        inner.add(wheel);
-        animatedParts.mineWheel = wheel;
-      } else if (entity.id === 'elixir_collector_1') {
-        const baseRing = new THREE.Mesh(
-          new THREE.CylinderGeometry(1.3, 1.4, 0.5, 16),
-          new THREE.MeshStandardMaterial({ color: 0x475569, metalness: 0.4, roughness: 0.5 }),
-        );
-        baseRing.position.y = 0.4;
-        baseRing.castShadow = true;
-        inner.add(baseRing);
-
-        const glassVat = new THREE.Mesh(
-          new THREE.CylinderGeometry(1.05, 1.05, 2.0, 20),
-          new THREE.MeshStandardMaterial({
-            color: 0xe0f2fe,
-            transparent: true,
-            opacity: 0.32,
-            roughness: 0.1,
-          }),
-        );
-        glassVat.position.y = 1.5;
-        inner.add(glassVat);
-
-        const liquid = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.92, 0.92, 1.4, 18),
-          new THREE.MeshStandardMaterial({
-            color: 0xd946ef,
-            emissive: 0xc026d3,
-            emissiveIntensity: 0.65,
-            roughness: 0.2,
-          }),
-        );
-        liquid.position.y = 1.25;
-        inner.add(liquid);
-        animatedParts.elixirLiquid = liquid;
-
-        const cap = new THREE.Mesh(
-          new THREE.ConeGeometry(1.2, 0.8, 16),
-          new THREE.MeshStandardMaterial({ color: 0xb45309, metalness: 0.5, roughness: 0.4 }),
-        );
-        cap.position.y = 2.8;
-        cap.castShadow = true;
-        inner.add(cap);
-      } else if (entity.id === 'builders_hut') {
-        const cabin = new THREE.Mesh(
-          new THREE.BoxGeometry(1.3, 1.2, 1.3),
-          new THREE.MeshStandardMaterial({ color: 0x8c5828, roughness: 0.85 }),
-        );
-        cabin.position.y = 0.75;
-        cabin.castShadow = true;
-        inner.add(cabin);
-
-        const roof = new THREE.Mesh(
-          new THREE.ConeGeometry(1.15, 0.9, 4),
-          new THREE.MeshStandardMaterial({ color: 0x3b82f6, roughness: 0.7 }),
-        );
-        roof.position.y = 1.8;
-        roof.rotation.y = Math.PI / 4;
-        roof.castShadow = true;
-        inner.add(roof);
-      } else if (entity.id === 'cannon_1') {
-        const mount = new THREE.Mesh(
-          new THREE.CylinderGeometry(1.1, 1.3, 0.6, 12),
-          new THREE.MeshStandardMaterial({ color: 0x784c24, roughness: 0.85 }),
-        );
-        mount.position.y = 0.45;
-        mount.castShadow = true;
-        inner.add(mount);
-
-        const turretGroup = new THREE.Group();
-        turretGroup.position.y = 0.95;
-
-        const barrel = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.35, 0.48, 2.1, 16),
-          new THREE.MeshStandardMaterial({ color: 0x1e293b, metalness: 0.75, roughness: 0.3 }),
-        );
-        barrel.rotation.x = Math.PI / 2;
-        barrel.position.z = 0.45;
-        barrel.castShadow = true;
-        turretGroup.add(barrel);
-
-        inner.add(turretGroup);
-        animatedParts.cannonTurret = turretGroup;
-      } else if (entity.id === 'army_camp') {
-        const fireRing = new THREE.Mesh(
-          new THREE.TorusGeometry(0.65, 0.18, 8, 12),
-          new THREE.MeshStandardMaterial({ color: 0x64748b, roughness: 0.9 }),
-        );
-        fireRing.rotation.x = Math.PI / 2;
-        fireRing.position.y = 0.3;
-        inner.add(fireRing);
+        hearthRing.rotation.x = Math.PI / 2;
+        hearthRing.position.y = 0.16;
+        inner.add(hearthRing);
 
         const flame = new THREE.Mesh(
-          new THREE.ConeGeometry(0.55, 1.35, 8),
-          new THREE.MeshBasicMaterial({ color: 0xff7700 }),
+          new THREE.ConeGeometry(0.48, 1.15, 8),
+          new THREE.MeshBasicMaterial({ color: 0xf97316 }),
         );
-        flame.position.y = 0.95;
+        flame.position.y = 0.68;
         inner.add(flame);
         animatedParts.campfireFlame = flame;
-      } else if (entity.id.startsWith('obs_pine')) {
-        inner.add(createPineTree(2.0));
-      } else if (entity.id.startsWith('obs_oak')) {
-        inner.add(createOakTree(2.0));
-      } else if (entity.id.startsWith('obs_rock')) {
-        inner.add(createBoulder(2.2));
-      } else if (entity.id === 'obs_gem_box') {
-        const gemCluster = new THREE.Mesh(
-          new THREE.OctahedronGeometry(0.85, 0),
-          new THREE.MeshStandardMaterial({
-            color: 0x10b981,
-            emissive: 0x059669,
-            emissiveIntensity: 0.9,
-            roughness: 0.15,
+      } else if (entity.id === 'library') {
+        // 🏛️ GREAT LIBRARY OF SMRITI & THE STUDY (Classical Marble Rotunda & Copper-Azure Observatory Dome)
+        const marbleMat = new THREE.MeshPhysicalMaterial({
+          map: realisticTex.stoneTexture,
+          bumpMap: realisticTex.stoneTexture,
+          bumpScale: 0.025,
+          color: 0xf1f5f9,
+          roughness: 0.35,
+          clearcoat: 0.25,
+        });
+        const domeMat = new THREE.MeshPhysicalMaterial({
+          color: 0x0369a1,
+          metalness: 0.65,
+          roughness: 0.22,
+          clearcoat: 0.6,
+        });
+
+        const rotunda = new THREE.Mesh(new THREE.CylinderGeometry(2.1, 2.25, 2.35, 24), marbleMat);
+        rotunda.position.y = 1.18;
+        rotunda.castShadow = true;
+        rotunda.receiveShadow = true;
+        inner.add(rotunda);
+
+        for (let c = 0; c < 10; c++) {
+          const ang = (c / 10) * Math.PI * 2;
+          const col = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.18, 2.45, 12), marbleMat);
+          col.position.set(Math.cos(ang) * 2.42, 1.22, Math.sin(ang) * 2.42);
+          col.castShadow = true;
+          inner.add(col);
+        }
+
+        const dome = new THREE.Mesh(
+          new THREE.SphereGeometry(2.18, 24, 16, 0, Math.PI * 2, 0, Math.PI / 2),
+          domeMat,
+        );
+        dome.position.y = 2.35;
+        dome.castShadow = true;
+        inner.add(dome);
+      } else if (entity.id === 'army_camp') {
+        // ⚔️ COMMAND WAR CAMP (Targets & Timer — Canvas Pavilion Tent, Timber Watchtower & War Brazier)
+        const tentMat = new THREE.MeshStandardMaterial({
+          bumpMap: realisticTex.terrainDetailBump,
+          bumpScale: 0.03,
+          color: 0x991b1b,
+          roughness: 0.82,
+        });
+
+        const mainTent = new THREE.Mesh(new THREE.ConeGeometry(1.7, 2.25, 8), tentMat);
+        mainTent.position.set(-0.9, 1.12, -0.4);
+        mainTent.castShadow = true;
+        inner.add(mainTent);
+
+        [
+          [0.8, -0.8],
+          [1.8, -0.8],
+          [0.8, 0.2],
+          [1.8, 0.2],
+        ].forEach(([tx, tz]) => {
+          const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.13, 3.25, 8), sharedBarkMat);
+          leg.position.set(tx, 1.62, tz);
+          leg.castShadow = true;
+          inner.add(leg);
+        });
+        const platform = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.2, 1.4), sharedBarkMat);
+        platform.position.set(1.3, 3.12, -0.3);
+        inner.add(platform);
+
+        const warFlame = new THREE.Mesh(
+          new THREE.ConeGeometry(0.42, 1.0, 8),
+          new THREE.MeshBasicMaterial({ color: 0xef4444 }),
+        );
+        warFlame.position.set(0.2, 0.65, 1.3);
+        inner.add(warFlame);
+        animatedParts.warCampFlame = warFlame;
+      } else if (entity.id === 'crucible') {
+        // ⏳ CRUCIBLE CITADEL (35-Day Mesocycle — Ring of 7 Carved Stone Monoliths & Levitating Crystal)
+        for (let m = 0; m < 7; m++) {
+          const ang = (m / 7) * Math.PI * 2;
+          const monolith = new THREE.Mesh(new THREE.BoxGeometry(0.52, 2.75, 0.32), cobbleMat);
+          monolith.position.set(Math.cos(ang) * 2.12, 1.35, Math.sin(ang) * 2.12);
+          monolith.rotation.y = -ang;
+          monolith.castShadow = true;
+          inner.add(monolith);
+        }
+        const orb = new THREE.Mesh(
+          new THREE.OctahedronGeometry(0.62, 2),
+          new THREE.MeshPhysicalMaterial({
+            color: 0xa855f7,
+            emissive: 0x7e22ce,
+            emissiveIntensity: 1.15,
+            roughness: 0.1,
+            clearcoat: 1.0,
           }),
         );
-        gemCluster.position.y = 0.9;
-        gemCluster.castShadow = true;
-        inner.add(gemCluster);
+        orb.position.y = 2.45;
+        inner.add(orb);
+        animatedParts.crucibleMonolithOrb = orb;
+      } else if (entity.id === 'vault') {
+        // 🏦 KUBERA'S MOUNTAIN VAULT (Planetary Bank — Carved Granite Treasury & Gilded Dome)
+        const goldMat = new THREE.MeshStandardMaterial({
+          color: 0xfbbf24,
+          metalness: 0.92,
+          roughness: 0.18,
+        });
+
+        const vaultHall = new THREE.Mesh(new THREE.BoxGeometry(3.25, 2.15, 2.65), cobbleMat);
+        vaultHall.position.y = 1.08;
+        vaultHall.castShadow = true;
+        inner.add(vaultHall);
+
+        const goldDome = new THREE.Mesh(
+          new THREE.SphereGeometry(1.48, 24, 16, 0, Math.PI * 2, 0, Math.PI / 2),
+          goldMat,
+        );
+        goldDome.position.y = 2.15;
+        goldDome.castShadow = true;
+        inner.add(goldDome);
+      } else if (entity.id === 'market') {
+        // 🏪 COASTAL HARBOR & GRAND MARKET (Merchant Canopies, Timber Pier & Moored Sailboat)
+        const canopyColors = [0xd97706, 0x059669, 0xdb2777];
+
+        [-1.3, 0, 1.3].forEach((sx, idx) => {
+          const stall = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.9, 0.95), sharedBarkMat);
+          stall.position.set(sx, 0.45, -0.6);
+          stall.castShadow = true;
+          inner.add(stall);
+
+          const canopy = new THREE.Mesh(
+            new THREE.ConeGeometry(0.8, 0.65, 4),
+            new THREE.MeshStandardMaterial({ color: canopyColors[idx], roughness: 0.68 }),
+          );
+          canopy.position.set(sx, 1.25, -0.6);
+          canopy.rotation.y = Math.PI / 4;
+          inner.add(canopy);
+        });
+
+        const pier = new THREE.Mesh(new THREE.BoxGeometry(1.35, 0.2, 4.3), sharedBarkMat);
+        pier.position.set(0, 0.25, 2.2);
+        pier.castShadow = true;
+        inner.add(pier);
+
+        const boatGroup = new THREE.Group();
+        boatGroup.position.set(1.65, 0.05, 3.65);
+        const hull = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.42, 2.15), sharedBarkMat);
+        hull.castShadow = true;
+        boatGroup.add(hull);
+        const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.065, 2.25, 8), sharedBarkMat);
+        mast.position.y = 1.12;
+        boatGroup.add(mast);
+        const sail = new THREE.Mesh(
+          new THREE.BoxGeometry(0.06, 1.48, 1.18),
+          new THREE.MeshStandardMaterial({ color: 0xfef3c7, roughness: 0.72 }),
+        );
+        sail.position.set(0, 1.26, 0.1);
+        boatGroup.add(sail);
+        inner.add(boatGroup);
+        animatedParts.harborBoat = boatGroup;
       }
 
-      const { position, quaternion } = getSphereTransform(entity.gridX, entity.gridZ, 0.02);
+      const { position, quaternion } = getSphereTransform(entity.gridX, entity.gridZ, 0.0);
       root.position.copy(position);
       root.quaternion.copy(quaternion);
       root.userData = { entity };
@@ -1423,14 +2684,16 @@ function EarthBase3DView({
     }
 
     INITIAL_BASE_ENTITIES.forEach((entity) => {
-      scene.add(buildEntityMesh(entity));
+      planetOverworldGroup.add(buildLandmarkMesh(entity));
     });
 
-    /* ---------- 5. SPAWN BOTH FREE FIRE CHARACTERS (DJ ALOK & KELLY) ---------- */
+    /* ---------- 6. SPAWN FREE FIRE CHARACTERS (DJ ALOK & KELLY) + 3D WARHORSE ---------- */
     const alokRig = buildFreeFireCharacterRig('alok');
     const kellyRig = buildFreeFireCharacterRig('kelly');
+    const horseRig = buildSovereignHorseRig();
     scene.add(alokRig.root);
     scene.add(kellyRig.root);
+    scene.add(horseRig.root);
 
     const charRigs: Record<CharacterId, CharacterRig> = {
       alok: alokRig,
@@ -1448,36 +2711,54 @@ function EarthBase3DView({
         walkCycle: number;
       }
     > = {
-      alok: { gx: 0.0, gz: 2.6, heading: 0, jumpHeight: 0, verticalVel: 0, walkCycle: 0 },
-      kelly: { gx: -2.6, gz: 4.2, heading: 0.4, jumpHeight: 0, verticalVel: 0, walkCycle: 0 },
+      alok: { gx: 0.0, gz: 2.2, heading: 0, jumpHeight: 0, verticalVel: 0, walkCycle: 0 },
+      kelly: { gx: -2.4, gz: 3.4, heading: 0.4, jumpHeight: 0, verticalVel: 0, walkCycle: 0 },
     };
 
-    /* ---------- 6. REALISTIC WISPY ATMOSPHERIC CLOUD SPHERE (NO BLOCKY PUFFS) ---------- */
+    const savedOverworldPos = { gx: 0.0, gz: 2.2, heading: 0 };
+
+    const horseState = {
+      gx: 0.0,
+      gz: 2.2,
+      heading: 0,
+      gallopCycle: 0,
+    };
+
+    let autoRideJob: {
+      targetId: string;
+      curve: THREE.CatmullRomCurve3;
+      progress: number;
+      totalLength: number;
+    } | null = null;
+
+    let activeSquareBaseScene: LandmarkSquareBaseSceneResult | null = null;
+
+    /* ---------- 7. REALISTIC WISPY ATMOSPHERIC CLOUD SPHERE ---------- */
     const cloudsOrbitGroup = new THREE.Group();
     const wispyCloudTex = generateEarthCloudsTexture(planetId);
     const wispyCloudSphere = new THREE.Mesh(
-      new THREE.SphereGeometry(R_VILLAGE * 1.045, 64, 64),
+      new THREE.SphereGeometry(R_PLANET * 1.07, 64, 64),
       new THREE.MeshLambertMaterial({
         map: wispyCloudTex,
         transparent: true,
-        opacity: 0.65,
+        opacity: 0.52,
         depthWrite: false,
       }),
     );
     cloudsOrbitGroup.add(wispyCloudSphere);
-    scene.add(cloudsOrbitGroup);
+    planetOverworldGroup.add(cloudsOrbitGroup);
 
     const selectionHighlight = new THREE.Mesh(
-      new THREE.RingGeometry(0.65, 0.78, 4),
+      new THREE.RingGeometry(1.1, 1.32, 32),
       new THREE.MeshBasicMaterial({
         color: 0x4ade80,
         side: THREE.DoubleSide,
       }),
     );
     selectionHighlight.visible = false;
-    scene.add(selectionHighlight);
+    planetOverworldGroup.add(selectionHighlight);
 
-    /* ---------- 7. CHARACTER ACTIONS & CAMERA PRESET BRIDGE ---------- */
+    /* ---------- 8. CHARACTER, HORSE, TRAIL TRAVEL & SQUARE BASE CLEARING BRIDGE ---------- */
     let camTransition: {
       startPos: THREE.Vector3;
       endPos: THREE.Vector3;
@@ -1492,17 +2773,20 @@ function EarthBase3DView({
     const triggerJump = () => {
       const id = activeCharRef.current;
       const st = charPhysics[id];
-      // If sitting or sleeping, stand up first and jump!
       if (postureRef.current !== 'stand') {
         postureRef.current = 'stand';
         setPosture('stand');
       }
       if (st.jumpHeight <= 0.02) {
-        st.verticalVel = 7.2;
+        st.verticalVel = isMountedRef.current ? 8.6 : 7.2;
       }
     };
 
     const setPostureState = (next: CharacterPosture) => {
+      if (isMountedRef.current) {
+        isMountedRef.current = false;
+        setIsMounted(false);
+      }
       const targetPosture = postureRef.current === next ? 'stand' : next;
       postureRef.current = targetPosture;
       setPosture(targetPosture);
@@ -1512,11 +2796,204 @@ function EarthBase3DView({
       }
     };
 
+    const enterLandmarkBase = (landmarkId: string) => {
+      const dest = INITIAL_BASE_ENTITIES.find((e) => e.id === landmarkId);
+      if (!dest) return;
+
+      const activeSt = charPhysics[activeCharRef.current];
+      if (!enteredLandmarkRef.current) {
+        savedOverworldPos.gx = dest.gridX;
+        savedOverworldPos.gz = dest.gridZ + 1.6;
+        savedOverworldPos.heading = activeSt.heading;
+      }
+
+      autoRideJob = null;
+      setActiveTravelTarget(null);
+      setSelectedEntity(dest);
+      enteredLandmarkRef.current = dest;
+      setEnteredLandmark(dest);
+
+      // Build the dedicated Clash-of-Clans Square Base Clearing (Images 1 & 3: asdf_c05a868d.jpg / i2_af13d6e9.jpg)
+      squareBaseContainerGroup.clear();
+      activeSquareBaseScene = buildLandmarkSquareBaseScene(dest.id, dest.name);
+      squareBaseContainerGroup.add(activeSquareBaseScene.group);
+
+      planetOverworldGroup.visible = false;
+      squareBaseContainerGroup.visible = true;
+      skyDome.position.set(0, -R_PLANET, 0);
+
+      // Dismount inside the Square Base Clearing; Warhorse waits at the NW forest trail fence!
+      isMountedRef.current = false;
+      setIsMounted(false);
+      postureRef.current = 'stand';
+      setPosture('stand');
+
+      // Place Hero near the NW trail gate entering the 40x40 checkerboard lawn
+      activeSt.gx = -10.5;
+      activeSt.gz = -1.8;
+      activeSt.heading = Math.PI * 0.42;
+      activeSt.jumpHeight = 0;
+      activeSt.verticalVel = 0;
+
+      const companionId: CharacterId = activeCharRef.current === 'alok' ? 'kelly' : 'alok';
+      charPhysics[companionId].gx = -8.2;
+      charPhysics[companionId].gz = -3.4;
+      charPhysics[companionId].heading = Math.PI * 0.35;
+
+      // Horse waits right beside the wooden fence & dirt trail (top-left of i2_af13d6e9.jpg)
+      horseState.gx = activeSquareBaseScene.exitGatePosition.x;
+      horseState.gz = activeSquareBaseScene.exitGatePosition.z;
+      horseState.heading = Math.PI * 0.45;
+
+      // Isometric / 3D Clash-of-Clans Square Base Overview Camera (matching asdf_c05a868d.jpg)
+      cameraModeRef.current = 'village';
+      setCameraMode('village');
+      camTransition = {
+        startPos: camera.position.clone(),
+        startTarget: controls.target.clone(),
+        endPos: new THREE.Vector3(0, 29.5, 31.5),
+        endTarget: new THREE.Vector3(0, 0.8, 1.5),
+        progress: 0,
+      };
+    };
+
+    const exitLandmarkBase = () => {
+      if (!enteredLandmarkRef.current) return;
+
+      enteredLandmarkRef.current = null;
+      setEnteredLandmark(null);
+      activeSquareBaseScene = null;
+      squareBaseContainerGroup.clear();
+      squareBaseContainerGroup.visible = false;
+      planetOverworldGroup.visible = true;
+      skyDome.position.set(0, 0, 0);
+
+      // Remount the 3D Warhorse on the Planet Overworld right outside the Landmark
+      isMountedRef.current = true;
+      setIsMounted(true);
+      postureRef.current = 'stand';
+      setPosture('stand');
+
+      const activeSt = charPhysics[activeCharRef.current];
+      activeSt.gx = savedOverworldPos.gx;
+      activeSt.gz = savedOverworldPos.gz;
+      activeSt.heading = savedOverworldPos.heading;
+      activeSt.jumpHeight = 0;
+      activeSt.verticalVel = 0;
+
+      horseState.gx = activeSt.gx;
+      horseState.gz = activeSt.gz;
+      horseState.heading = activeSt.heading;
+
+      const charTf = getSphereTransform(activeSt.gx, activeSt.gz, 1.15);
+      cameraModeRef.current = 'character';
+      setCameraMode('character');
+      camTransition = {
+        startPos: camera.position.clone(),
+        startTarget: controls.target.clone(),
+        endPos: charTf.position.clone().add(new THREE.Vector3(0, 3.6, 7.4)),
+        endTarget: charTf.position.clone(),
+        progress: 0,
+      };
+    };
+
+    const toggleMount = () => {
+      if (enteredLandmarkRef.current) {
+        // Inside the Square Base, mounting the horse rides back out onto the Planet Overworld!
+        exitLandmarkBase();
+        return;
+      }
+      const nextMounted = !isMountedRef.current;
+      isMountedRef.current = nextMounted;
+      setIsMounted(nextMounted);
+      if (nextMounted) {
+        postureRef.current = 'stand';
+        setPosture('stand');
+        const st = charPhysics[activeCharRef.current];
+        horseState.gx = st.gx;
+        horseState.gz = st.gz;
+        horseState.heading = st.heading;
+      } else {
+        autoRideJob = null;
+        setActiveTravelTarget(null);
+      }
+    };
+
+    const rideToLandmark = (landmarkId: string) => {
+      const dest = INITIAL_BASE_ENTITIES.find((e) => e.id === landmarkId);
+      if (!dest) return;
+      setSelectedEntity(dest);
+
+      // If currently inside a Square Base, exit to the Planet Overworld first so we can ride the horse!
+      if (enteredLandmarkRef.current) {
+        if (enteredLandmarkRef.current.id === landmarkId) return;
+        exitLandmarkBase();
+      }
+
+      if (!isMountedRef.current) {
+        isMountedRef.current = true;
+        setIsMounted(true);
+      }
+      postureRef.current = 'stand';
+      setPosture('stand');
+      cameraModeRef.current = 'character';
+      setCameraMode('character');
+
+      const st = charPhysics[activeCharRef.current];
+      const startVec = new THREE.Vector3(st.gx, 0, st.gz);
+      const endVec = new THREE.Vector3(dest.gridX, 0, dest.gridZ + 1.4);
+
+      if (startVec.distanceTo(endVec) < 1.2) {
+        setActiveTravelTarget(null);
+        enterLandmarkBase(landmarkId);
+        return;
+      }
+
+      const directSeg = PLANET_ROAD_SEGMENTS.find(
+        (seg) =>
+          (seg.fromId === landmarkId && Math.hypot(st.gx, st.gz) < 4.5) ||
+          (seg.toId === landmarkId && Math.hypot(st.gx, st.gz) < 4.5),
+      );
+
+      let waypoints: THREE.Vector3[] = [];
+      if (directSeg) {
+        const pts =
+          directSeg.toId === landmarkId ? directSeg.points : [...directSeg.points].reverse();
+        waypoints = [
+          startVec,
+          ...pts.slice(1).map(([px, pz]) => new THREE.Vector3(px, 0, pz)),
+          endVec,
+        ];
+      } else {
+        const midVec = new THREE.Vector3(
+          (startVec.x + endVec.x) * 0.45,
+          0,
+          (startVec.z + endVec.z) * 0.45,
+        );
+        waypoints = [startVec, midVec, endVec];
+      }
+
+      const curve = new THREE.CatmullRomCurve3(waypoints);
+      autoRideJob = {
+        targetId: landmarkId,
+        curve,
+        progress: 0,
+        totalLength: Math.max(2, curve.getLength()),
+      };
+      setActiveTravelTarget(dest.name);
+    };
+
     const switchCharacter = (id: CharacterId) => {
       activeCharRef.current = id;
       setActiveChar(id);
       postureRef.current = 'stand';
       setPosture('stand');
+      if (isMountedRef.current && !enteredLandmarkRef.current) {
+        const st = charPhysics[id];
+        horseState.gx = st.gx;
+        horseState.gz = st.gz;
+        horseState.heading = st.heading;
+      }
     };
 
     const activateSkill = () => {
@@ -1543,25 +3020,43 @@ function EarthBase3DView({
     };
 
     const setCamPreset = (mode: 'character' | 'village' | 'globe') => {
+      if (enteredLandmarkRef.current && mode === 'globe') {
+        exitLandmarkBase();
+      }
       cameraModeRef.current = mode;
       setCameraMode(mode);
       const activeSt = charPhysics[activeCharRef.current];
-      const charTf = getSphereTransform(activeSt.gx, activeSt.gz, 0.7);
 
+      if (enteredLandmarkRef.current) {
+        const heroPos = new THREE.Vector3(activeSt.gx, 0.9, activeSt.gz);
+        camTransition = {
+          startPos: camera.position.clone(),
+          startTarget: controls.target.clone(),
+          endPos:
+            mode === 'character'
+              ? heroPos.clone().add(new THREE.Vector3(0, 4.2, 8.2))
+              : new THREE.Vector3(0, 29.5, 31.5),
+          endTarget: mode === 'character' ? heroPos : new THREE.Vector3(0, 0.8, 1.5),
+          progress: 0,
+        };
+        return;
+      }
+
+      const charTf = getSphereTransform(activeSt.gx, activeSt.gz, 1.1);
       camTransition = {
         startPos: camera.position.clone(),
         startTarget: controls.target.clone(),
         endPos:
           mode === 'character'
-            ? charTf.position.clone().add(new THREE.Vector3(0, 2.4, 5.2))
+            ? charTf.position.clone().add(new THREE.Vector3(0, 3.2, 6.8))
             : mode === 'village'
-              ? new THREE.Vector3(0, R_VILLAGE + 19, 28)
-              : new THREE.Vector3(0, 40, 148),
+              ? new THREE.Vector3(0, R_PLANET + 28, 36)
+              : new THREE.Vector3(0, 48, 165),
         endTarget:
           mode === 'character'
             ? charTf.position.clone()
             : mode === 'village'
-              ? new THREE.Vector3(0, R_VILLAGE * 0.78, 0)
+              ? new THREE.Vector3(0, R_PLANET * 0.82, 0)
               : new THREE.Vector3(0, 0, 0),
         progress: 0,
       };
@@ -1570,13 +3065,17 @@ function EarthBase3DView({
     actionsBridgeRef.current = {
       triggerJump,
       setPostureState,
+      toggleMount,
+      rideToLandmark,
+      enterLandmarkBase,
+      exitLandmarkBase,
       switchCharacter,
       activateSkill,
       triggerEmote,
       setCamPreset,
     };
 
-    /* ---------- 8. KEYBOARD & POINTER INPUT ---------- */
+    /* ---------- 9. KEYBOARD & POINTER INPUT ---------- */
     const keyMap: Record<string, boolean> = {};
     const raycaster = new THREE.Raycaster();
     const mouse = new THREE.Vector2();
@@ -1589,6 +3088,7 @@ function EarthBase3DView({
 
     function onPointerUp(e: PointerEvent) {
       if (Math.hypot(e.clientX - downPos.x, e.clientY - downPos.y) > 6) return;
+      if (enteredLandmarkRef.current) return;
 
       mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
       mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
@@ -1604,10 +3104,7 @@ function EarthBase3DView({
           selectionHighlight.position.copy(tf.position);
           selectionHighlight.quaternion
             .copy(tf.quaternion)
-            .multiply(
-              new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2, 0, Math.PI / 4)),
-            );
-          selectionHighlight.scale.setScalar(picked.size * TILE_WORLD);
+            .multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2, 0, 0)));
         }
       } else {
         setSelectedEntity(null);
@@ -1623,7 +3120,11 @@ function EarthBase3DView({
       if (e.repeat) return;
 
       if (e.code === 'Escape') {
-        onExitToSpace();
+        if (enteredLandmarkRef.current) {
+          exitLandmarkBase();
+        } else {
+          onExitToSpace();
+        }
       } else if (e.code === 'Digit1') {
         setCamPreset('character');
       } else if (e.code === 'Digit2') {
@@ -1633,6 +3134,18 @@ function EarthBase3DView({
       } else if (isOwner) {
         if (e.code === 'Space') {
           triggerJump();
+        } else if (e.code === 'KeyE') {
+          if (enteredLandmarkRef.current) {
+            exitLandmarkBase();
+          } else {
+            const st = charPhysics[activeCharRef.current];
+            const near = INITIAL_BASE_ENTITIES.find(
+              (lm) => Math.hypot(st.gx - lm.gridX, st.gz - lm.gridZ) < 4.2,
+            );
+            if (near) enterLandmarkBase(near.id);
+          }
+        } else if (e.code === 'KeyH') {
+          toggleMount();
         } else if (e.code === 'KeyC') {
           setPostureState('sit');
         } else if (e.code === 'KeyZ') {
@@ -1666,29 +3179,45 @@ function EarthBase3DView({
     renderer.domElement.addEventListener('pointerdown', onPointerDown);
     renderer.domElement.addEventListener('pointerup', onPointerUp);
 
-    /* ---------- 9. PROCEDURAL SKELETAL ANIMATION & MOVEMENT LOOP ---------- */
+    /* ---------- 10. OPEN-WORLD HORSE + SQUARE BASE CLEARING ANIMATION LOOP ---------- */
     const clock = new THREE.Clock();
     let diveProgress = 0;
     const diveDuration = 1.65;
     const startCamPos = new THREE.Vector3(0, R_PLANET + 115, 95);
-    const targetInitialCamPos = new THREE.Vector3(0, R_VILLAGE + 2.6, 6.2);
+    const targetInitialCamPos = new THREE.Vector3(0, R_PLANET + 3.8, 8.2);
+    let lastNearbyId: string | null = null;
+
+    function getActiveEntityWorldTransform(gx: number, gz: number, heightAboveGround = 0) {
+      if (enteredLandmarkRef.current) {
+        return {
+          position: new THREE.Vector3(gx, heightAboveGround, gz),
+          quaternion: new THREE.Quaternion(),
+        };
+      }
+      const tf = getSphereTransform(gx, gz, heightAboveGround);
+      return { position: tf.position, quaternion: tf.quaternion };
+    }
 
     let animId = 0;
     function animate() {
       animId = requestAnimationFrame(animate);
       const dt = Math.min(clock.getDelta(), 0.1);
       const elapsed = clock.getElapsedTime();
+      skyDomeMat.uniforms.uTime.value = elapsed;
 
       const currentCharId = activeCharRef.current;
       const activeSpec = FREE_FIRE_CHARACTERS[currentCharId];
       const activePhys = charPhysics[currentCharId];
-      const prevCharWorldPos = getSphereTransform(
+      const inSquareBase = Boolean(enteredLandmarkRef.current);
+      const mounted = isMountedRef.current && !inSquareBase;
+
+      const prevCharWorldPos = getActiveEntityWorldTransform(
         activePhys.gx,
         activePhys.gz,
-        activePhys.jumpHeight + 0.65,
+        activePhys.jumpHeight + (mounted ? 1.15 : 0.65),
       ).position;
 
-      /* --- A. Compute Movement Input (Virtual Joystick + WASD/Arrows) --- */
+      /* --- A. Compute Movement Input or Trail Auto-Ride --- */
       let moveX = isOwner ? joystickVectorRef.current.x : 0;
       let moveY = isOwner ? joystickVectorRef.current.y : 0;
 
@@ -1699,10 +3228,42 @@ function EarthBase3DView({
         if (keyMap['KeyD'] || keyMap['ArrowRight']) moveX += 1;
       }
 
-      const inputMag = Math.min(1, Math.hypot(moveX, moveY));
-      const isMoving = inputMag > 0.08;
+      const manualMag = Math.min(1, Math.hypot(moveX, moveY));
+      if (manualMag > 0.08 && autoRideJob) {
+        autoRideJob = null;
+        setActiveTravelTarget(null);
+      }
 
-      if (isMoving) {
+      let isMoving = false;
+
+      if (autoRideJob && !inSquareBase) {
+        isMoving = true;
+        const rideSpeed = 11.4;
+        autoRideJob.progress = Math.min(
+          1,
+          autoRideJob.progress + (rideSpeed * dt) / autoRideJob.totalLength,
+        );
+        const pt = autoRideJob.curve.getPoint(autoRideJob.progress);
+        const tan = autoRideJob.curve.getTangent(autoRideJob.progress);
+        activePhys.gx = pt.x;
+        activePhys.gz = pt.z;
+
+        const targetHeading = Math.atan2(tan.x, tan.z);
+        let diff = targetHeading - activePhys.heading;
+        while (diff > Math.PI) diff -= Math.PI * 2;
+        while (diff < -Math.PI) diff += Math.PI * 2;
+        activePhys.heading += diff * clamp(dt * 10, 0, 1);
+        activePhys.walkCycle += dt * rideSpeed * 2.1;
+
+        if (autoRideJob.progress >= 1) {
+          const arrivedId = autoRideJob.targetId;
+          autoRideJob = null;
+          setActiveTravelTarget(null);
+          // Automatically enter the Landmark's Clash-of-Clans Square Base Clearing upon arrival!
+          enterLandmarkBase(arrivedId);
+        }
+      } else if (manualMag > 0.08) {
+        isMoving = true;
         if (isEmotingRef.current) {
           isEmotingRef.current = false;
           setIsEmoting(false);
@@ -1710,7 +3271,6 @@ function EarthBase3DView({
         const normX = moveX / Math.hypot(moveX, moveY);
         const normY = moveY / Math.hypot(moveX, moveY);
 
-        // Align movement relative to current camera yaw around the village
         const camForward = new THREE.Vector3();
         camera.getWorldDirection(camForward);
         camForward.y = 0;
@@ -1721,58 +3281,166 @@ function EarthBase3DView({
         const worldMoveX = camRight.x * normX + camForward.x * -normY;
         const worldMoveZ = camRight.z * normX + camForward.z * -normY;
 
-        // posture speed multipliers (Sit/Crouch walk = 0.5x, Sleep/Prone crawl = 0.28x)
         const postureMult =
           postureRef.current === 'sit' ? 0.52 : postureRef.current === 'sleep' ? 0.3 : 1.0;
+        const mountMult = mounted ? 1.65 : 1.0;
         const sprintMult =
           isSprintingRef.current && postureRef.current === 'stand' ? activeSpec.sprintBonus : 1.0;
         const skillMult = skillActiveRef.current ? 1.22 : 1.0;
 
         const effectiveSpeed =
-          activeSpec.baseSpeed * inputMag * postureMult * sprintMult * skillMult;
+          activeSpec.baseSpeed * manualMag * postureMult * mountMult * sprintMult * skillMult;
 
-        activePhys.gx = clamp(activePhys.gx + worldMoveX * effectiveSpeed * dt, -14.5, 14.5);
-        activePhys.gz = clamp(activePhys.gz + worldMoveZ * effectiveSpeed * dt, -14.5, 14.5);
+        const boundLimit = inSquareBase ? 17.5 : 27.5;
+        activePhys.gx = clamp(
+          activePhys.gx + worldMoveX * effectiveSpeed * dt,
+          -boundLimit,
+          boundLimit,
+        );
+        activePhys.gz = clamp(
+          activePhys.gz + worldMoveZ * effectiveSpeed * dt,
+          -boundLimit,
+          boundLimit,
+        );
 
-        // Smoothly rotate character heading toward movement direction
         const targetHeading = Math.atan2(worldMoveX, worldMoveZ);
         let diff = targetHeading - activePhys.heading;
         while (diff > Math.PI) diff -= Math.PI * 2;
         while (diff < -Math.PI) diff += Math.PI * 2;
         activePhys.heading += diff * clamp(dt * 12, 0, 1);
 
-        activePhys.walkCycle += dt * effectiveSpeed * 2.3;
+        activePhys.walkCycle += dt * effectiveSpeed * 2.1;
+
+        // If inside the Square Base Clearing and the player walks up to the waiting horse at the NW trail fence, ride back out!
+        if (
+          inSquareBase &&
+          activeSquareBaseScene &&
+          Math.hypot(
+            activePhys.gx - activeSquareBaseScene.exitGatePosition.x,
+            activePhys.gz - activeSquareBaseScene.exitGatePosition.z,
+          ) < 1.85
+        ) {
+          exitLandmarkBase();
+        }
       }
 
-      /* --- B. Jump & Gravity Physics along Spherical Normal --- */
+      // Check proximity to Landmarks when riding on the Planet Overworld
+      if (!inSquareBase) {
+        const nearLm =
+          INITIAL_BASE_ENTITIES.find(
+            (lm) => Math.hypot(activePhys.gx - lm.gridX, activePhys.gz - lm.gridZ) < 3.6,
+          ) || null;
+        const nearId = nearLm ? nearLm.id : null;
+        if (nearId !== lastNearbyId) {
+          lastNearbyId = nearId;
+          setNearbyLandmark(nearLm);
+        }
+      } else if (lastNearbyId !== null) {
+        lastNearbyId = null;
+        setNearbyLandmark(null);
+      }
+
+      /* --- B. Jump & Gravity Physics --- */
       if (activePhys.jumpHeight > 0 || activePhys.verticalVel !== 0) {
         activePhys.jumpHeight += activePhys.verticalVel * dt;
-        activePhys.verticalVel -= 18.5 * dt; // Gravity
+        activePhys.verticalVel -= 18.5 * dt;
         if (activePhys.jumpHeight <= 0) {
           activePhys.jumpHeight = 0;
           activePhys.verticalVel = 0;
         }
       }
 
-      /* --- C. Update Both Free Fire Character Rigs (Skeletal Poses) --- */
+      /* --- C. Animate the 3D Sovereign Warhorse (3-Segment Legs, Neck, Head & Flowing Tail) --- */
+      if (mounted) {
+        horseState.gx = activePhys.gx;
+        horseState.gz = activePhys.gz;
+        horseState.heading = activePhys.heading;
+        horseState.gallopCycle = activePhys.walkCycle;
+      }
+
+      const horseTf = getActiveEntityWorldTransform(
+        horseState.gx,
+        horseState.gz,
+        mounted ? activePhys.jumpHeight : 0,
+      );
+      horseRig.root.position.copy(horseTf.position);
+      horseRig.root.quaternion.copy(horseTf.quaternion);
+      horseRig.bodyPivot.rotation.y = horseState.heading;
+
+      const horseMoving = mounted && isMoving;
+      if (horseMoving) {
+        const g = horseState.gallopCycle * 1.15;
+        const bob = Math.abs(Math.sin(g)) * 0.085;
+        horseRig.bodyPivot.position.y = bob;
+        horseRig.bodyPivot.rotation.x = Math.sin(g) * 0.085;
+        horseRig.neckPivot.rotation.x = 0.5 + Math.cos(g) * 0.14;
+        horseRig.headGroup.rotation.x = -0.42 - Math.cos(g) * 0.08;
+        horseRig.tailPivot.rotation.x = 0.68 + Math.sin(g * 1.5) * 0.24;
+
+        const fl = Math.sin(g) * 0.72;
+        const fr = Math.sin(g + 0.95) * 0.72;
+        const bl = -Math.sin(g + 0.42) * 0.68;
+        const br = -Math.sin(g + 1.35) * 0.68;
+
+        horseRig.frontLeft.hipPivot.rotation.x = fl;
+        horseRig.frontLeft.kneePivot.rotation.x = Math.max(0, fl) * 0.88;
+        horseRig.frontLeft.fetlockPivot.rotation.x = Math.sin(g - 0.5) * 0.35;
+
+        horseRig.frontRight.hipPivot.rotation.x = fr;
+        horseRig.frontRight.kneePivot.rotation.x = Math.max(0, fr) * 0.88;
+        horseRig.frontRight.fetlockPivot.rotation.x = Math.sin(g + 0.45) * 0.35;
+
+        horseRig.backLeft.hipPivot.rotation.x = bl;
+        horseRig.backLeft.kneePivot.rotation.x = -Math.max(0, -bl) * 0.78;
+        horseRig.backLeft.fetlockPivot.rotation.x = -Math.sin(g + 0.1) * 0.3;
+
+        horseRig.backRight.hipPivot.rotation.x = br;
+        horseRig.backRight.kneePivot.rotation.x = -Math.max(0, -br) * 0.78;
+        horseRig.backRight.fetlockPivot.rotation.x = -Math.sin(g + 1.0) * 0.3;
+      } else {
+        const idleH = Math.sin(elapsed * 2.1);
+        horseRig.bodyPivot.position.y = idleH * 0.012;
+        horseRig.bodyPivot.rotation.x = 0;
+        horseRig.neckPivot.rotation.x = 0.48 + idleH * 0.04;
+        horseRig.headGroup.rotation.x = -0.42 + Math.cos(elapsed * 1.5) * 0.03;
+        horseRig.tailPivot.rotation.x = 0.38 + Math.sin(elapsed * 1.7) * 0.08;
+        horseRig.frontLeft.hipPivot.rotation.x = 0;
+        horseRig.frontLeft.kneePivot.rotation.x = 0;
+        horseRig.frontLeft.fetlockPivot.rotation.x = 0;
+        horseRig.frontRight.hipPivot.rotation.x = 0;
+        horseRig.frontRight.kneePivot.rotation.x = 0;
+        horseRig.frontRight.fetlockPivot.rotation.x = 0;
+        horseRig.backLeft.hipPivot.rotation.x = 0;
+        horseRig.backLeft.kneePivot.rotation.x = 0;
+        horseRig.backLeft.fetlockPivot.rotation.x = 0;
+        horseRig.backRight.hipPivot.rotation.x = 0;
+        horseRig.backRight.kneePivot.rotation.x = 0;
+        horseRig.backRight.fetlockPivot.rotation.x = 0;
+      }
+
+      /* --- D. Update Both Free Fire Character Rigs (Mounted Rider Pose vs On-Foot Pose) --- */
       (['alok', 'kelly'] as CharacterId[]).forEach((cid) => {
         const rig = charRigs[cid];
         const phys = charPhysics[cid];
         const isControlled = cid === currentCharId;
+        const charMounted = isControlled && mounted;
         const charPosture: CharacterPosture = isControlled ? postureRef.current : 'stand';
         const charMoving = isControlled && isMoving;
-        const charJumping = phys.jumpHeight > 0.04;
+        const charJumping = phys.jumpHeight > 0.04 && !charMounted;
         const charSprinting =
           isControlled && isSprintingRef.current && charPosture === 'stand' && charMoving;
 
-        // Position & orient on the spherical Earth
-        const tf = getSphereTransform(phys.gx, phys.gz, phys.jumpHeight);
+        const riderHeightOffset = charMounted ? 0.68 + horseRig.bodyPivot.position.y : 0;
+        const tf = getActiveEntityWorldTransform(
+          phys.gx,
+          phys.gz,
+          phys.jumpHeight + riderHeightOffset,
+        );
         rig.root.position.copy(tf.position);
         rig.root.quaternion.copy(tf.quaternion);
         rig.facingGroup.rotation.y = phys.heading;
 
-        // Selection ring & Skill Aura visibility
-        rig.selectionRing.visible = isControlled;
+        rig.selectionRing.visible = isControlled && !charMounted;
         rig.skillAuraGroup.visible = isControlled && skillActiveRef.current;
         if (rig.skillAuraGroup.visible) {
           rig.skillAuraGroup.rotation.y = elapsed * 2.4;
@@ -1780,8 +3448,7 @@ function EarthBase3DView({
           rig.skillAuraGroup.scale.set(auraPulse, 1, auraPulse);
         }
 
-        // Sleep Zzz Particles
-        rig.sleepZzzGroup.visible = charPosture === 'sleep' && !charMoving;
+        rig.sleepZzzGroup.visible = charPosture === 'sleep' && !charMoving && !charMounted;
         if (rig.sleepZzzGroup.visible) {
           rig.sleepZzzGroup.children.forEach((zOrb, idx) => {
             const zPhase = (elapsed * 1.2 + idx * 0.33) % 1;
@@ -1791,7 +3458,6 @@ function EarthBase3DView({
           });
         }
 
-        // Target Skeletal Joint Angles based on Posture & Action
         let targetBodyY = 0;
         let targetBodyPitch = 0;
         let targetTorsoPitch = 0;
@@ -1808,8 +3474,21 @@ function EarthBase3DView({
         let rHipX = 0,
           rKneeX = 0;
 
-        if (charJumping) {
-          // Mid-air Free Fire Jump Pose
+        if (charMounted) {
+          const rideBob = charMoving ? Math.sin(horseState.gallopCycle * 1.15) * 0.06 : 0;
+          targetBodyY = -0.12 + rideBob;
+          targetTorsoPitch = charMoving ? 0.18 : 0.06;
+          lHipX = -0.88;
+          rHipX = -0.88;
+          lKneeX = 1.18;
+          rKneeX = 1.18;
+          lShoulderX = -0.68 + rideBob * 1.5;
+          lShoulderZ = 0.16;
+          rShoulderX = -0.68 + rideBob * 1.5;
+          rShoulderZ = -0.16;
+          lElbowX = -0.82;
+          rElbowX = -0.82;
+        } else if (charJumping) {
           targetBodyY = 0.1;
           targetTorsoPitch = 0.12;
           lShoulderX = -2.1;
@@ -1823,11 +3502,9 @@ function EarthBase3DView({
           rHipX = -0.35;
           rKneeX = 0.75;
         } else if (charPosture === 'sleep') {
-          // Prone / Sleeping Horizontal Pose on the grass
           targetBodyY = -0.46;
-          targetBodyPitch = Math.PI / 2 - 0.08; // Lie flat horizontally
+          targetBodyPitch = Math.PI / 2 - 0.08;
           if (charMoving) {
-            // Tactical Prone Crawl Animation
             const c = phys.walkCycle * 1.2;
             targetTorsoYaw = Math.sin(c) * 0.12;
             lShoulderX = -2.5 + Math.sin(c) * 0.45;
@@ -1839,7 +3516,6 @@ function EarthBase3DView({
             lKneeX = 0.45 + Math.max(0, Math.sin(c)) * 0.4;
             rKneeX = 0.45 + Math.max(0, -Math.sin(c)) * 0.4;
           } else {
-            // Peaceful Sleeping Pose (head resting on arm + slow breathing)
             const breath = Math.sin(elapsed * 2.0) * 0.04;
             targetTorsoPitch = breath;
             targetHeadPitch = -0.25;
@@ -1856,7 +3532,6 @@ function EarthBase3DView({
           }
         } else if (charPosture === 'sit') {
           if (charMoving) {
-            // Tactical Free Fire Crouch-Walk
             const c = phys.walkCycle * 1.1;
             targetBodyY = -0.22 + Math.abs(Math.sin(c)) * 0.04;
             targetTorsoPitch = 0.38;
@@ -1870,7 +3545,6 @@ function EarthBase3DView({
             lElbowX = -0.85;
             rElbowX = -0.85;
           } else {
-            // Seated on the Grass Pose (Cross/Bent knees, hands resting forward)
             targetBodyY = -0.34;
             targetTorsoPitch = 0.12 + Math.sin(elapsed * 2.2) * 0.02;
             lHipX = -1.35;
@@ -1885,7 +3559,6 @@ function EarthBase3DView({
             rElbowX = -0.65;
           }
         } else if (isControlled && isEmotingRef.current) {
-          // Celebratory Free Fire Booyah Dance / Wave Emote
           const beat = elapsed * 8.0;
           targetBodyY = Math.abs(Math.sin(beat)) * 0.08;
           targetTorsoYaw = Math.sin(beat * 0.5) * 0.35;
@@ -1900,7 +3573,6 @@ function EarthBase3DView({
           lKneeX = Math.max(0, -lHipX) * 0.8;
           rKneeX = Math.max(0, -rHipX) * 0.8;
         } else if (charMoving) {
-          // Stand Walk / Free Fire Sprint Cycle
           const c = phys.walkCycle;
           const amp = charSprinting ? 1.15 : 0.72;
           targetBodyY = Math.abs(Math.sin(c * 2)) * (charSprinting ? 0.09 : 0.05);
@@ -1917,22 +3589,14 @@ function EarthBase3DView({
           lElbowX = charSprinting ? -1.15 : -0.45;
           rElbowX = charSprinting ? -1.15 : -0.45;
         } else {
-          // Idle Heroic Breathing Stance
           const idleWave = Math.sin(elapsed * 2.4 + (cid === 'alok' ? 0 : 1.5));
           targetBodyY = idleWave * 0.015;
           lShoulderZ = 0.1 + idleWave * 0.025;
           rShoulderZ = -0.1 - idleWave * 0.025;
           lElbowX = -0.22;
           rElbowX = -0.22;
-          // Companion character waves occasionally when idle
-          if (!isControlled && Math.sin(elapsed * 0.8) > 0.6) {
-            rShoulderX = -2.3;
-            rShoulderZ = -0.3 + Math.sin(elapsed * 9) * 0.25;
-            rElbowX = -0.4;
-          }
         }
 
-        // Smoothly interpolate all skeletal joints
         const lerpRate = clamp(dt * 12, 0, 1);
         rig.bodyPivot.position.y = THREE.MathUtils.lerp(
           rig.bodyPivot.position.y,
@@ -2002,11 +3666,11 @@ function EarthBase3DView({
         );
       });
 
-      /* --- D. Camera Follow & Preset Transitions --- */
-      const newCharWorldPos = getSphereTransform(
+      /* --- E. Camera Follow, Atmospheric Sky Transition & Animated Water/Campfires --- */
+      const newCharWorldPos = getActiveEntityWorldTransform(
         activePhys.gx,
         activePhys.gz,
-        activePhys.jumpHeight + 0.65,
+        activePhys.jumpHeight + (mounted ? 1.15 : 0.65),
       ).position;
 
       if (diveProgress < 1) {
@@ -2024,24 +3688,46 @@ function EarthBase3DView({
         controls.target.lerpVectors(camTransition.startTarget, camTransition.endTarget, ease);
         if (camTransition.progress >= 1) camTransition = null;
       } else if (cameraModeRef.current === 'character') {
-        // Third-Person Free Fire Follow Camera: translates smoothly with the character while allowing 360° mouse orbit
         const deltaMove = newCharWorldPos.clone().sub(prevCharWorldPos);
         camera.position.add(deltaMove);
         controls.target.lerp(newCharWorldPos, 0.25);
       }
 
-      // Animate clouds & village buildings
-      cloudsOrbitGroup.rotation.y = elapsed * 0.025;
-      if (animatedParts.townHallCrystal) {
-        animatedParts.townHallCrystal.rotation.y = elapsed * 1.4;
-        animatedParts.townHallCrystal.position.y = 5.2 + Math.sin(elapsed * 2.5) * 0.2;
+      const camDistFromCenter = camera.position.length();
+      const targetSkyOpacity =
+        !inSquareBase && (cameraModeRef.current === 'globe' || camDistFromCenter > R_PLANET + 65)
+          ? 0.0
+          : 1.0;
+      skyDomeMat.uniforms.uOpacity.value = THREE.MathUtils.lerp(
+        skyDomeMat.uniforms.uOpacity.value,
+        targetSkyOpacity,
+        clamp(dt * 4.5, 0, 1),
+      );
+
+      // Animate Square Base Waterfall Foam & Campfires when inside a Landmark Base
+      if (inSquareBase && activeSquareBaseScene) {
+        activeSquareBaseScene.animatedWaterfallFoam.forEach((foam, idx) => {
+          const s = 0.92 + Math.sin(elapsed * 8 + idx * 1.5) * 0.14;
+          foam.scale.set(s, 0.42, s);
+        });
+        activeSquareBaseScene.animatedCampfires.forEach((flame, idx) => {
+          const f = 0.88 + Math.sin(elapsed * 15 + idx * 2.1) * 0.15;
+          flame.scale.set(f, 1 + Math.cos(elapsed * 18 + idx) * 0.18, f);
+        });
       }
-      if (animatedParts.mineWheel) animatedParts.mineWheel.rotation.z = elapsed * 1.8;
-      if (animatedParts.elixirLiquid) {
-        animatedParts.elixirLiquid.scale.y = 0.75 + (Math.sin(elapsed * 2.2) * 0.5 + 0.5) * 0.35;
+
+      // Animate Sparkling Normal-Mapped Ocean Ripples, Clouds & Landmark Accents
+      realisticTex.waterNormalMap.offset.set(elapsed * 0.035, elapsed * 0.022);
+      oceanSphere.rotation.y = Math.sin(elapsed * 0.35) * 0.006;
+      cloudsOrbitGroup.rotation.y = elapsed * 0.02;
+
+      if (animatedParts.sanctumCrystal) {
+        animatedParts.sanctumCrystal.rotation.y = elapsed * 1.4;
+        animatedParts.sanctumCrystal.position.y = 5.1 + Math.sin(elapsed * 2.5) * 0.18;
       }
-      if (animatedParts.cannonTurret) {
-        animatedParts.cannonTurret.rotation.y = Math.sin(elapsed * 0.8) * 0.85;
+      if (animatedParts.crucibleMonolithOrb) {
+        animatedParts.crucibleMonolithOrb.rotation.y = -elapsed * 1.2;
+        animatedParts.crucibleMonolithOrb.position.y = 2.45 + Math.cos(elapsed * 2.2) * 0.18;
       }
       if (animatedParts.campfireFlame) {
         const flicker = 0.9 + Math.sin(elapsed * 14) * 0.12;
@@ -2050,6 +3736,14 @@ function EarthBase3DView({
           1 + Math.cos(elapsed * 18) * 0.15,
           flicker,
         );
+      }
+      if (animatedParts.warCampFlame) {
+        const flicker = 0.88 + Math.cos(elapsed * 16) * 0.14;
+        animatedParts.warCampFlame.scale.set(flicker, 1 + Math.sin(elapsed * 15) * 0.16, flicker);
+      }
+      if (animatedParts.harborBoat) {
+        animatedParts.harborBoat.position.y = 0.05 + Math.sin(elapsed * 2.1) * 0.08;
+        animatedParts.harborBoat.rotation.z = Math.sin(elapsed * 1.6) * 0.06;
       }
 
       controls.update();
@@ -2067,6 +3761,8 @@ function EarthBase3DView({
       window.removeEventListener('keyup', onKeyUp);
       renderer.domElement.removeEventListener('pointerdown', onPointerDown);
       renderer.domElement.removeEventListener('pointerup', onPointerUp);
+      envRT.dispose();
+      pmremGenerator.dispose();
       controls.dispose();
       renderer.dispose();
     };
@@ -2106,33 +3802,38 @@ function EarthBase3DView({
           <div className="glass-panel px-5 py-3 rounded-2xl flex items-center gap-3 border-sky-300/60">
             <Compass className="w-5 h-5 text-sky-300 animate-spin" />
             <span className="font-display text-xs sm:text-base font-bold tracking-widest uppercase text-white">
-              Entering {planetName} Outpost // {isOwner ? 'Sovereign Control' : 'Spectator Mode'}
+              Entering {planetName} // Whole-Planet Land & Forest World
             </span>
           </div>
         </div>
       )}
 
       {/* ==================== TOP HEADER HUD ==================== */}
-      <header className="fixed top-0 left-0 right-0 z-20 p-2.5 sm:p-4 pointer-events-none flex flex-wrap items-center justify-between gap-2">
-        <div className="flex flex-wrap items-center gap-2 pointer-events-auto">
+      <header className="fixed top-0 left-0 right-0 z-20 p-2 sm:p-3 pointer-events-none flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 pointer-events-auto">
           {/* Planet & Ownership Status Badge */}
-          <div className="glass-panel rounded-2xl px-3 py-1.5 flex items-center gap-2.5 border-amber-400/50">
+          <div className="glass-panel rounded-2xl px-2.5 py-1.5 flex items-center gap-2 border-amber-400/50">
             <div
-              className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center font-display font-bold text-slate-950 shadow-lg"
+              className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl flex items-center justify-center font-display font-bold text-slate-950 shadow-lg"
               style={{ backgroundColor: isOwner ? currentSpec.accentColor : '#64748b' }}
             >
               {isOwner ? (
-                activeChar === 'alok' ? <Music className="w-4 h-4 sm:w-5 sm:h-5" /> : <Zap className="w-4 h-4 sm:w-5 sm:h-5" />
+                activeChar === 'alok' ? (
+                  <Music className="w-4 h-4" />
+                ) : (
+                  <Zap className="w-4 h-4" />
+                )
               ) : (
-                <Eye className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
+                <Eye className="w-4 h-4 text-white" />
               )}
             </div>
             <div>
               <div className="font-display font-bold text-xs sm:text-sm text-white leading-tight flex items-center gap-1.5">
-                <span>{planetName}</span>
+                <span>{enteredLandmark ? enteredLandmark.name : planetName}</span>
                 {isOwner ? (
                   <span className="text-[9px] font-mono-tech uppercase px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-400/40 flex items-center gap-1">
-                    <Crown className="w-2.5 h-2.5" /> Sovereign
+                    <Crown className="w-2.5 h-2.5" />{' '}
+                    {enteredLandmark ? 'Square Base' : 'Sovereign'}
                   </span>
                 ) : (
                   <span className="text-[9px] font-mono-tech uppercase px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-400/40 flex items-center gap-1">
@@ -2140,37 +3841,41 @@ function EarthBase3DView({
                   </span>
                 )}
               </div>
-              <div className="text-[10px] font-mono-tech text-slate-300">
+              <div className="text-[9px] font-mono-tech text-slate-300">
                 {isOwner
-                  ? `${currentSpec.name} // ${posture.toUpperCase()}`
-                  : `Ruler: ${ownerName} (Spectator Mode)`}
+                  ? enteredLandmark
+                    ? `${currentSpec.name} // 🏰 INSIDE SQUARE BASE`
+                    : `${currentSpec.name} // ${isMounted ? '🐎 HORSEBACK' : posture.toUpperCase()}`
+                  : `Ruler: ${ownerName}`}
               </div>
             </div>
           </div>
 
-          {/* Camera Mode Switcher: 3rd-Person Character vs Village vs Full Globe */}
+          {/* Camera Mode Switcher: Rider/Hero vs Base/Continent Overview vs Full Globe */}
           <div className="glass-panel rounded-2xl p-1 flex items-center gap-1">
             <button
               onClick={() => actionsBridgeRef.current?.setCamPreset('character')}
-              className={`glass-pill px-2 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1 ${
+              className={`glass-pill px-2 py-1 rounded-xl text-[11px] font-semibold flex items-center gap-1 ${
                 cameraMode === 'character' ? 'active-amber text-white' : 'text-slate-300'
               }`}
             >
               <User className="w-3.5 h-3.5 text-amber-300" />
-              <span className="hidden xs:inline">Hero</span>
+              <span className="hidden xs:inline">{enteredLandmark ? 'Hero' : 'Rider'}</span>
             </button>
             <button
               onClick={() => actionsBridgeRef.current?.setCamPreset('village')}
-              className={`glass-pill px-2 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1 ${
+              className={`glass-pill px-2 py-1 rounded-xl text-[11px] font-semibold flex items-center gap-1 ${
                 cameraMode === 'village' ? 'active text-white' : 'text-slate-300'
               }`}
             >
               <MapPin className="w-3.5 h-3.5 text-emerald-300" />
-              <span className="hidden xs:inline">Outpost</span>
+              <span className="hidden xs:inline">
+                {enteredLandmark ? 'Square Base' : 'Continent'}
+              </span>
             </button>
             <button
               onClick={() => actionsBridgeRef.current?.setCamPreset('globe')}
-              className={`glass-pill px-2 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1 ${
+              className={`glass-pill px-2 py-1 rounded-xl text-[11px] font-semibold flex items-center gap-1 ${
                 cameraMode === 'globe' ? 'active text-white' : 'text-slate-300'
               }`}
             >
@@ -2179,56 +3884,111 @@ function EarthBase3DView({
             </button>
           </div>
 
-          <button
-            onClick={onExitToSpace}
-            className="glass-pill px-3 py-1.5 rounded-2xl text-xs font-semibold text-white flex items-center gap-1.5 shadow-lg hover:border-amber-400/60"
-          >
-            <Rocket className="w-3.5 h-3.5 text-amber-300" />
-            <span>Orbit</span>
-          </button>
+          {enteredLandmark ? (
+            <button
+              onClick={() => actionsBridgeRef.current?.exitLandmarkBase()}
+              className="glass-pill px-2.5 py-1.5 rounded-2xl text-[11px] font-bold text-amber-200 border border-amber-400/70 bg-amber-500/20 flex items-center gap-1.5 shadow-lg hover:bg-amber-500/30"
+            >
+              <span>🐎</span>
+              <span>Ride Out to Planet</span>
+            </button>
+          ) : (
+            <button
+              onClick={onExitToSpace}
+              className="glass-pill px-2.5 py-1.5 rounded-2xl text-[11px] font-semibold text-white flex items-center gap-1 shadow-lg hover:border-amber-400/60"
+            >
+              <Rocket className="w-3.5 h-3.5 text-amber-300" />
+              <span>Orbit</span>
+            </button>
+          )}
+
+          {onSwitchToR3FView && (
+            <button
+              onClick={onSwitchToR3FView}
+              className="glass-pill px-2.5 py-1.5 rounded-2xl text-[11px] font-semibold text-sky-300 border border-sky-400/60 flex items-center gap-1 shadow-lg hover:text-white"
+            >
+              <Globe2 className="w-3.5 h-3.5 text-sky-300" />
+              <span>R3F Shader Planet</span>
+            </button>
+          )}
         </div>
 
-        {/* Right: Character Switcher Cards (Only enabled for Owner) + Village Resources */}
+        {/* Right: Mount Horse Toggle + Character Switcher */}
         {isOwner && (
-          <div className="flex flex-wrap items-center gap-2 pointer-events-auto">
+          <div className="flex flex-wrap items-center gap-1.5 pointer-events-auto">
+            <button
+              onClick={() => actionsBridgeRef.current?.toggleMount()}
+              className={`glass-panel px-2.5 py-1.5 rounded-2xl text-[11px] font-bold flex items-center gap-1.5 border transition-all ${
+                isMounted && !enteredLandmark
+                  ? 'border-amber-400 bg-amber-500/20 text-amber-200 shadow-[0_0_15px_rgba(245,158,11,0.3)]'
+                  : 'border-slate-700 text-slate-300 hover:border-amber-400/50'
+              }`}
+              title="Mount / Dismount Warhorse [H]"
+            >
+              <span>🐎</span>
+              <span>
+                {enteredLandmark
+                  ? 'Mount & Exit Base'
+                  : isMounted
+                    ? 'Mounted'
+                    : 'Mount Horse'}
+              </span>
+            </button>
+
             <div className="glass-panel rounded-2xl p-1 flex items-center gap-1">
               <button
                 onClick={() => actionsBridgeRef.current?.switchCharacter('alok')}
-                className={`glass-pill px-2.5 py-1 rounded-xl text-xs font-bold flex items-center gap-1.5 ${
+                className={`glass-pill px-2 py-1 rounded-xl text-[11px] font-bold flex items-center gap-1 ${
                   activeChar === 'alok' ? 'active-amber text-white' : 'text-slate-300'
                 }`}
               >
-                <Music className="w-3.5 h-3.5 text-amber-300" />
+                <Music className="w-3 h-3 text-amber-300" />
                 <span>Alok</span>
               </button>
               <button
                 onClick={() => actionsBridgeRef.current?.switchCharacter('kelly')}
-                className={`glass-pill px-2.5 py-1 rounded-xl text-xs font-bold flex items-center gap-1.5 ${
+                className={`glass-pill px-2 py-1 rounded-xl text-[11px] font-bold flex items-center gap-1 ${
                   activeChar === 'kelly' ? 'active-amber text-white' : 'text-slate-300'
                 }`}
               >
-                <Zap className="w-3.5 h-3.5 text-yellow-300" />
+                <Zap className="w-3 h-3 text-yellow-300" />
                 <span>Kelly</span>
               </button>
-            </div>
-
-            <div className="hidden lg:flex items-center gap-1.5">
-              <div className="glass-panel rounded-2xl px-3 py-1.5 flex items-center gap-2 border-amber-400/40">
-                <Coins className="w-3.5 h-3.5 text-amber-400" />
-                <span className="font-display font-bold text-xs text-amber-300">1,500</span>
-              </div>
-              <div className="glass-panel rounded-2xl px-3 py-1.5 flex items-center gap-2 border-fuchsia-400/40">
-                <Droplets className="w-3.5 h-3.5 text-fuchsia-400" />
-                <span className="font-display font-bold text-xs text-fuchsia-300">1,500</span>
-              </div>
-              <div className="glass-panel rounded-2xl px-3 py-1.5 flex items-center gap-2 border-emerald-400/40">
-                <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
-                <span className="font-display font-bold text-xs text-emerald-300">250</span>
-              </div>
             </div>
           </div>
         )}
       </header>
+
+      {/* ==================== COMPACT LANDMARK TRAIL BAR (RIDE HORSE & ENTER SQUARE BASE) ==================== */}
+      {isOwner && (
+        <div className="fixed top-14 left-1/2 -translate-x-1/2 z-20 max-w-[96vw] pointer-events-auto">
+          <div className="glass-panel rounded-2xl px-2 py-1 flex items-center gap-1 overflow-x-auto thin-scrollbar border-slate-700/80">
+            <span className="text-[9px] font-mono-tech uppercase text-amber-300 px-1.5 whitespace-nowrap">
+              {enteredLandmark ? '🏰 Places:' : '🐎 Ride & Enter:'}
+            </span>
+            {[
+              { id: 'sanctum', label: '⛺ Sanctum' },
+              { id: 'library', label: '🏛️ Library' },
+              { id: 'army_camp', label: '⚔️ War Camp' },
+              { id: 'crucible', label: '⏳ Crucible' },
+              { id: 'vault', label: '🏦 Vault' },
+              { id: 'market', label: '🏪 Harbor' },
+            ].map((lm) => (
+              <button
+                key={lm.id}
+                onClick={() => actionsBridgeRef.current?.rideToLandmark(lm.id)}
+                className={`px-2 py-1 rounded-xl text-[10px] font-mono-tech whitespace-nowrap transition-all ${
+                  enteredLandmark?.id === lm.id || selectedEntity?.id === lm.id
+                    ? 'bg-emerald-500/25 text-emerald-200 border border-emerald-400/50'
+                    : 'glass-pill text-slate-200 hover:text-amber-300'
+                }`}
+              >
+                {lm.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* ==================== BOTTOM-LEFT: FREE FIRE VIRTUAL ANALOG JOYSTICK (OWNER ONLY) ==================== */}
       {isOwner && (
@@ -2240,7 +4000,7 @@ function EarthBase3DView({
               joyDraggingRef.current = true;
               updateJoystickFromEvent(e.clientX, e.clientY);
             }}
-            className="relative w-28 h-28 sm:w-32 sm:h-32 rounded-full bg-slate-950/65 border-2 border-sky-400/40 backdrop-blur-md flex items-center justify-center shadow-[0_0_30px_rgba(0,0,0,0.75)] cursor-grab active:cursor-grabbing"
+            className="relative w-24 h-24 sm:w-28 sm:h-28 rounded-full bg-slate-950/65 border-2 border-sky-400/40 backdrop-blur-md flex items-center justify-center shadow-[0_0_30px_rgba(0,0,0,0.75)] cursor-grab active:cursor-grabbing"
           >
             <div className="absolute inset-2 rounded-full border border-dashed border-slate-600/60 pointer-events-none" />
             <span className="absolute top-1.5 text-[9px] font-mono-tech text-sky-400/70">W</span>
@@ -2252,71 +4012,102 @@ function EarthBase3DView({
               style={{
                 transform: `translate(${joyKnob.x}px, ${joyKnob.y}px)`,
               }}
-              className="w-11 h-11 sm:w-12 sm:h-12 rounded-full bg-gradient-to-br from-amber-400 via-orange-500 to-amber-600 border-2 border-white/90 shadow-[0_0_20px_rgba(245,158,11,0.85)] flex items-center justify-center pointer-events-none transition-transform duration-75"
+              className="w-10 h-10 sm:w-11 sm:h-11 rounded-full bg-gradient-to-br from-amber-400 via-orange-500 to-amber-600 border-2 border-white/90 shadow-[0_0_20px_rgba(245,158,11,0.85)] flex items-center justify-center pointer-events-none transition-transform duration-75"
             >
-              <div className="w-3.5 h-3.5 rounded-full bg-white/80" />
+              <div className="w-3 h-3 rounded-full bg-white/80" />
             </div>
           </div>
           <span className="text-[9px] font-mono-tech uppercase tracking-wider text-slate-400 bg-slate-950/80 px-2 py-0.5 rounded-full border border-slate-800">
-            Move / WASD
+            {isMounted && !enteredLandmark ? 'Ride / WASD' : 'Move / WASD'}
           </span>
         </div>
       )}
 
-      {/* ==================== BOTTOM-CENTER: HP / EP BAR & BUILDING INSPECTOR ==================== */}
+      {/* ==================== BOTTOM-CENTER: LANDMARK INSPECTOR, SQUARE BASE BANNER & TRAIL STATUS ==================== */}
       <div className="fixed bottom-3 left-1/2 -translate-x-1/2 z-20 w-[calc(100vw-2rem)] max-w-md pointer-events-auto flex flex-col gap-2">
-        {selectedEntity && (
+        {activeTravelTarget && (
+          <div className="glass-panel rounded-2xl px-3.5 py-2 flex items-center justify-between gap-2 border-amber-400/50 bg-amber-950/35">
+            <div className="text-xs font-mono-tech text-amber-200 flex items-center gap-2">
+              <span className="animate-bounce">🐎</span>
+              <span>Riding trail to {activeTravelTarget} (auto-entering Square Base)...</span>
+            </div>
+          </div>
+        )}
+
+        {!enteredLandmark && nearbyLandmark && isOwner && (
+          <div className="glass-panel rounded-2xl px-3.5 py-2.5 flex items-center justify-between gap-3 border-emerald-400/60 bg-emerald-950/45">
+            <div className="text-xs text-emerald-100">
+              <span className="font-bold text-emerald-300">{nearbyLandmark.name}</span> Gate Reached
+            </div>
+            <button
+              onClick={() => actionsBridgeRef.current?.enterLandmarkBase(nearbyLandmark.id)}
+              className="px-3 py-1.5 rounded-xl text-[11px] font-mono-tech font-bold bg-emerald-500 text-slate-950 hover:bg-emerald-400 shadow-lg whitespace-nowrap"
+            >
+              🏰 Enter Square Base [E]
+            </button>
+          </div>
+        )}
+
+        {enteredLandmark && (
+          <div className="glass-panel rounded-2xl p-3 flex items-center justify-between gap-3 border-amber-400/50">
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-[9px] font-mono-tech uppercase px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-400/40">
+                  🏰 Square Base Clearing
+                </span>
+                <span className="font-display text-sm font-bold text-white">
+                  {enteredLandmark.name}
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-300 mt-0.5 line-clamp-2">
+                40×40 checkerboard base clearing with forest border, waterfall cliff, sandy beach &
+                waiting Warhorse at the NW trail gate.
+              </p>
+            </div>
+            <button
+              onClick={() => actionsBridgeRef.current?.exitLandmarkBase()}
+              className="glass-pill px-2.5 py-1.5 rounded-xl text-[10px] font-mono-tech text-amber-300 hover:text-white border border-amber-400/50 whitespace-nowrap"
+            >
+              🐎 Ride Out [E]
+            </button>
+          </div>
+        )}
+
+        {!enteredLandmark && selectedEntity && (
           <div className="glass-panel rounded-2xl p-3 flex items-center justify-between gap-3 border-emerald-400/40">
             <div>
               <div className="flex items-center gap-2">
                 <span className="text-[9px] font-mono-tech uppercase px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300">
-                  {selectedEntity.category}
-                </span>
-                <span className="text-xs font-mono-tech text-amber-300 font-semibold">
-                  Lv.{selectedEntity.level}
+                  Landmark
                 </span>
                 <span className="font-display text-sm font-bold text-white">
                   {selectedEntity.name}
                 </span>
               </div>
-              <p className="text-[11px] text-slate-300 mt-0.5 line-clamp-1">
+              <p className="text-[11px] text-slate-300 mt-0.5 line-clamp-2">
                 {selectedEntity.description}
               </p>
             </div>
-            <div className="glass-pill px-2.5 py-1 rounded-xl text-[11px] font-mono-tech text-sky-300 whitespace-nowrap">
-              <Shield className="w-3 h-3 inline mr-1" />
-              {selectedEntity.size}x{selectedEntity.size}
-            </div>
+            {isOwner && (
+              <div className="flex flex-col sm:flex-row items-center gap-1.5">
+                <button
+                  onClick={() => actionsBridgeRef.current?.rideToLandmark(selectedEntity.id)}
+                  className="glass-pill px-2.5 py-1.5 rounded-xl text-[10px] font-mono-tech text-amber-300 hover:text-white border border-amber-400/40 whitespace-nowrap"
+                >
+                  🐎 Ride Here
+                </button>
+                <button
+                  onClick={() => actionsBridgeRef.current?.enterLandmarkBase(selectedEntity.id)}
+                  className="px-2.5 py-1.5 rounded-xl text-[10px] font-mono-tech font-bold bg-emerald-500/25 text-emerald-200 border border-emerald-400/50 hover:bg-emerald-500/35 whitespace-nowrap"
+                >
+                  🏰 Enter Base
+                </button>
+              </div>
+            )}
           </div>
         )}
 
-        {isOwner ? (
-          <div className="glass-panel rounded-2xl px-4 py-2 border-slate-700/80 hidden sm:block">
-            <div className="flex items-center justify-between text-[10px] font-mono-tech mb-1">
-              <span className="text-amber-300 flex items-center gap-1 font-semibold">
-                <Zap className="w-3 h-3" /> EP {ep}/200
-              </span>
-              <span className="text-slate-300 uppercase tracking-wider">
-                {skillActive ? `${currentSpec.skillName.toUpperCase()} ACTIVE` : currentSpec.skillName}
-              </span>
-              <span className="text-emerald-300 flex items-center gap-1 font-bold">
-                <Heart className="w-3 h-3 fill-emerald-400" /> HP {hp}/200
-              </span>
-            </div>
-            <div className="w-full h-1.5 bg-slate-900 rounded-full overflow-hidden mb-1">
-              <div
-                className="h-full bg-gradient-to-r from-amber-400 to-yellow-300 transition-all duration-300"
-                style={{ width: `${(ep / 200) * 100}%` }}
-              />
-            </div>
-            <div className="w-full h-2 bg-slate-900 rounded-full overflow-hidden border border-slate-700/80">
-              <div
-                className="h-full bg-gradient-to-r from-emerald-500 via-emerald-400 to-white transition-all duration-300"
-                style={{ width: `${(hp / 200) * 100}%` }}
-              />
-            </div>
-          </div>
-        ) : (
+        {!isOwner && (
           <div className="glass-panel rounded-2xl px-4 py-2.5 border-rose-500/40 flex items-center justify-between gap-3">
             <div className="flex items-center gap-2 text-xs text-slate-200">
               <Lock className="w-4 h-4 text-rose-400 shrink-0" />
@@ -2328,18 +4119,33 @@ function EarthBase3DView({
         )}
       </div>
 
-      {/* ==================== BOTTOM-RIGHT: ACTION & POSTURE CLUSTER (OWNER ONLY) ==================== */}
+      {/* ==================== BOTTOM-RIGHT: ACTION, HORSE & POSTURE CLUSTER (OWNER ONLY) ==================== */}
       {isOwner && (
         <div className="fixed bottom-16 sm:bottom-6 right-4 sm:right-8 z-20 flex flex-col items-end gap-2 pointer-events-auto">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => actionsBridgeRef.current?.toggleMount()}
+              className={`px-2.5 h-10 rounded-2xl glass-pill flex items-center justify-center gap-1 border ${
+                isMounted && !enteredLandmark
+                  ? 'active-amber border-amber-400 text-white'
+                  : 'border-slate-700 text-slate-200'
+              }`}
+              title="Mount / Dismount Warhorse [H]"
+            >
+              <span>🐎</span>
+              <span className="text-[9px] font-mono-tech font-bold">
+                {enteredLandmark ? 'RIDE OUT' : isMounted ? 'DISMOUNT' : 'HORSE'}
+              </span>
+            </button>
+
             <button
               onClick={() => actionsBridgeRef.current?.triggerEmote()}
-              className={`w-11 h-11 rounded-2xl glass-pill flex flex-col items-center justify-center gap-0.5 ${
+              className={`w-10 h-10 rounded-2xl glass-pill flex flex-col items-center justify-center gap-0.5 ${
                 isEmoting ? 'active-amber text-white' : 'text-slate-200'
               }`}
               title="Booyah Dance Emote [B]"
             >
-              <Smile className="w-4 h-4 text-pink-400" />
+              <Smile className="w-3.5 h-3.5 text-pink-400" />
               <span className="text-[8px] font-mono-tech">Emote</span>
             </button>
 
@@ -2352,20 +4158,22 @@ function EarthBase3DView({
                   setPosture('stand');
                 }
               }}
-              className={`w-12 h-11 rounded-2xl glass-pill flex flex-col items-center justify-center gap-0.5 ${
+              className={`w-11 h-10 rounded-2xl glass-pill flex flex-col items-center justify-center gap-0.5 ${
                 isSprinting ? 'active-amber text-white' : 'text-slate-200'
               }`}
-              title="Toggle Sprint [Shift]"
+              title="Toggle Gallop / Sprint [Shift]"
             >
-              <Footprints className="w-4 h-4 text-amber-300" />
-              <span className="text-[8px] font-mono-tech">Sprint</span>
+              <Footprints className="w-3.5 h-3.5 text-amber-300" />
+              <span className="text-[8px] font-mono-tech">
+                {isMounted && !enteredLandmark ? 'Gallop' : 'Sprint'}
+              </span>
             </button>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
             <button
               onClick={() => actionsBridgeRef.current?.activateSkill()}
-              className={`w-13 h-13 sm:w-15 sm:h-15 rounded-full flex flex-col items-center justify-center border-2 transition-all shadow-lg ${
+              className={`w-12 h-12 sm:w-14 sm:h-14 rounded-full flex flex-col items-center justify-center border-2 transition-all shadow-lg ${
                 skillActive
                   ? 'bg-gradient-to-br from-amber-400 via-fuchsia-500 to-indigo-600 border-white scale-105 shadow-[0_0_30px_rgba(245,158,11,0.9)]'
                   : 'bg-slate-900/85 border-amber-400/70 hover:border-amber-300'
@@ -2373,29 +4181,29 @@ function EarthBase3DView({
               title={`${currentSpec.skillName}: ${currentSpec.skillDesc} [F]`}
             >
               {activeChar === 'alok' ? (
-                <Music className="w-5 h-5 text-amber-300" />
+                <Music className="w-4 h-4 text-amber-300" />
               ) : (
-                <Zap className="w-5 h-5 text-yellow-300" />
+                <Zap className="w-4 h-4 text-yellow-300" />
               )}
               <span className="text-[8px] font-mono-tech font-bold text-white mt-0.5">SKILL</span>
             </button>
 
             <button
               onClick={() => actionsBridgeRef.current?.setPostureState('sit')}
-              className={`w-12 h-12 rounded-full glass-pill flex flex-col items-center justify-center border-2 ${
-                posture === 'sit'
+              className={`w-11 h-11 rounded-full glass-pill flex flex-col items-center justify-center border-2 ${
+                posture === 'sit' && (!isMounted || enteredLandmark)
                   ? 'active border-sky-400 text-white scale-105'
                   : 'border-slate-600/70 text-slate-200'
               }`}
-              title="Sit / Crouch [C]"
+              title="Sit / Crouch on Grass [C]"
             >
-              <span className="text-[10px] font-display font-bold">SIT</span>
+              <span className="text-[9px] font-display font-bold">SIT</span>
             </button>
 
             <button
               onClick={() => actionsBridgeRef.current?.setPostureState('sleep')}
-              className={`w-12 h-12 rounded-full glass-pill flex flex-col items-center justify-center border-2 ${
-                posture === 'sleep'
+              className={`w-11 h-11 rounded-full glass-pill flex flex-col items-center justify-center border-2 ${
+                posture === 'sleep' && (!isMounted || enteredLandmark)
                   ? 'active border-indigo-400 text-white scale-105'
                   : 'border-slate-600/70 text-slate-200'
               }`}
@@ -2407,10 +4215,10 @@ function EarthBase3DView({
 
             <button
               onClick={() => actionsBridgeRef.current?.triggerJump()}
-              className="w-13 h-13 sm:w-15 sm:h-15 rounded-full bg-gradient-to-br from-sky-400 to-blue-600 border-2 border-white/80 shadow-[0_0_22px_rgba(56,189,248,0.65)] active:scale-95 flex flex-col items-center justify-center text-white transition-transform"
-              title="Jump [Space]"
+              className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-gradient-to-br from-sky-400 to-blue-600 border-2 border-white/80 shadow-[0_0_22px_rgba(56,189,248,0.65)] active:scale-95 flex flex-col items-center justify-center text-white transition-transform"
+              title="Jump / Rear Horse [Space]"
             >
-              <ArrowUp className="w-5 h-5 stroke-[2.5]" />
+              <ArrowUp className="w-4 h-4 stroke-[2.5]" />
               <span className="text-[8px] font-mono-tech font-bold">JUMP</span>
             </button>
           </div>
@@ -2456,7 +4264,7 @@ const CELESTIAL_DATA: CelestialBodyData[] = [
     name: 'Helios Prime',
     order: 'STAR // 00',
     classification: 'G2V Sovereign Star',
-    radius: 13.5,
+    radius: 16.5,
     distance: 0,
     orbitalSpeed: 0,
     rotationSpeed: 0.003,
@@ -2479,200 +4287,200 @@ const CELESTIAL_DATA: CelestialBodyData[] = [
     keybind: '1',
     name: 'Gaia',
     order: 'REALM // 01',
-    classification: 'Prime Oceanic Earth World',
-    radius: 4.0,
-    distance: 35,
+    classification: 'Inner Terrestrial Earth World (Mercury-Scale)',
+    radius: 1.85,
+    distance: 38,
     orbitalSpeed: 1.35,
     rotationSpeed: 0.012,
     tilt: 23.4,
     eccentricity: 0.015,
     color: '#38bdf8',
     badgeBg: 'radial-gradient(circle at 30% 30%, #7dd3fc, #0284c7, #1e3a8a)',
-    diameter: '12,742 km',
-    distanceText: '0.68 AU',
-    orbitText: '280 Days',
+    diameter: '4,879 km',
+    distanceText: '0.39 AU',
+    orbitText: '88 Days',
     tempText: '16°C Mean (Temperate)',
     moonsText: '1 (Selene)',
     rotationText: '24h 00m / 23.4°',
-    gravity: 'Gravity: 9.81 m/s²',
+    gravity: 'Gravity: 3.70 m/s²',
     atmosphere: '78% Nitrogen, 21% Oxygen, dynamic Cumulus & Cirrus cloud decks',
     description:
-      'The ancestral cradle of life. Features deep sapphire oceans, lush emerald continents, snow-capped tectonic cordilleras, and a bright Rayleigh-scattering blue atmosphere.',
+      'The innermost cradle of life sized to the 1st human solar system planet (4,879 km). Features deep sapphire oceans, 82% emerald forest continents, and a bright Rayleigh-scattering blue atmosphere.',
   },
   {
     id: 'olympus',
     keybind: '2',
     name: 'Olympus',
     order: 'REALM // 02',
-    classification: 'Highland Terrestrial Earth World',
-    radius: 4.8,
-    distance: 58,
+    classification: 'Highland Terrestrial Earth World (Venus-Scale)',
+    radius: 4.55,
+    distance: 60,
     orbitalSpeed: 1.12,
     rotationSpeed: 0.011,
     tilt: 19.8,
     eccentricity: 0.012,
     color: '#f59e0b',
     badgeBg: 'radial-gradient(circle at 30% 30%, #fde68a, #0284c7, #1e3a8a)',
-    diameter: '14,850 km',
-    distanceText: '0.88 AU',
-    orbitText: '330 Days',
+    diameter: '12,104 km',
+    distanceText: '0.72 AU',
+    orbitText: '225 Days',
     tempText: '18°C Mean (Mediterranean)',
     moonsText: '1 (Aegis)',
     rotationText: '25h 12m / 19.8°',
-    gravity: 'Gravity: 10.2 m/s²',
+    gravity: 'Gravity: 8.87 m/s²',
     atmosphere: '77% Nitrogen, 22% Oxygen, golden-rimmed mountain cloud formations',
     description:
-      'An Earth-like world famed for its towering marble-white mountain ranges, sunlit Mediterranean archipelagos, warm azure seas, and fertile golden plateaus.',
+      'Sized to the 2nd human solar system planet (12,104 km), famed for its towering marble-white mountain ranges, sunlit Mediterranean archipelagos, warm azure seas, and fertile golden plateaus.',
   },
   {
     id: 'elysium',
     keybind: '3',
     name: 'Elysium',
     order: 'REALM // 03',
-    classification: 'Verdant Garden Earth World',
-    radius: 4.3,
-    distance: 82,
+    classification: 'Verdant Garden Earth World (Earth-Scale)',
+    radius: 4.8,
+    distance: 84,
     orbitalSpeed: 0.96,
     rotationSpeed: 0.0125,
     tilt: 21.5,
     eccentricity: 0.016,
     color: '#10b981',
     badgeBg: 'radial-gradient(circle at 30% 30%, #6ee7b7, #059669, #0c4a6e)',
-    diameter: '13,620 km',
-    distanceText: '1.05 AU',
-    orbitText: '385 Days',
+    diameter: '12,742 km',
+    distanceText: '1.00 AU',
+    orbitText: '365 Days',
     tempText: '17°C Mean (Subtropical)',
     moonsText: '1 (Aura)',
-    rotationText: '23h 45m / 21.5°',
-    gravity: 'Gravity: 9.75 m/s²',
+    rotationText: '23h 56m / 21.5°',
+    gravity: 'Gravity: 9.81 m/s²',
     atmosphere: '78% Nitrogen, 21.5% Oxygen, trade-wind cyclone wisps',
     description:
-      'A paradise Earth world covered in vast emerald rainforest basins, winding river deltas, shimmering turquoise lagoons, and tranquil polar ice sheets.',
+      'Sized to the 3rd human solar system planet (12,742 km), covered in vast emerald rainforest basins, winding river deltas, shimmering turquoise lagoons, and tranquil polar ice sheets.',
   },
   {
     id: 'atlantis',
     keybind: '4',
     name: 'Atlantis',
     order: 'REALM // 04',
-    classification: 'Pelagic Archipelago Earth World',
-    radius: 3.7,
-    distance: 105,
+    classification: 'Pelagic Archipelago Earth World (Mars-Scale)',
+    radius: 2.55,
+    distance: 106,
     orbitalSpeed: 0.82,
     rotationSpeed: 0.013,
     tilt: 24.0,
     eccentricity: 0.02,
     color: '#06b6d4',
     badgeBg: 'radial-gradient(circle at 30% 30%, #67e8f9, #0891b2, #172554)',
-    diameter: '11,940 km',
-    distanceText: '1.28 AU',
-    orbitText: '460 Days',
+    diameter: '6,779 km',
+    distanceText: '1.52 AU',
+    orbitText: '687 Days',
     tempText: '15°C Mean (Pelagic)',
     moonsText: '2 (Triton & Nereus)',
-    rotationText: '22h 50m / 24.0°',
-    gravity: 'Gravity: 9.60 m/s²',
+    rotationText: '24h 37m / 24.0°',
+    gravity: 'Gravity: 3.72 m/s²',
     atmosphere: '79% Nitrogen, 20.5% Oxygen, oceanic marine cloud bands',
     description:
-      'A breathtaking oceanic Earth world where ring-shaped island continents and shallow turquoise coral shelves rise above deep cobalt-blue oceans.',
+      'Sized to the 4th human solar system planet (6,779 km), where ring-shaped island continents and shallow turquoise coral shelves rise above deep cobalt-blue oceans.',
   },
   {
     id: 'arcadia',
     keybind: '5',
     name: 'Arcadia',
     order: 'REALM // 05',
-    classification: 'Sylvan Super-Earth World',
-    radius: 5.8,
-    distance: 164,
+    classification: 'Colossal Sylvan Mega-Earth (Jupiter-Scale)',
+    radius: 11.2,
+    distance: 166,
     orbitalSpeed: 0.64,
     rotationSpeed: 0.014,
     tilt: 18.2,
     eccentricity: 0.018,
     color: '#22c55e',
     badgeBg: 'radial-gradient(circle at 30% 30%, #86efac, #16a34a, #1e3a8a)',
-    diameter: '17,400 km',
-    distanceText: '1.65 AU',
-    orbitText: '610 Days',
+    diameter: '139,820 km',
+    distanceText: '5.20 AU',
+    orbitText: '11.86 Years',
     tempText: '14°C Mean (Temperate Forest)',
     moonsText: '2 (Pan & Sylvan)',
-    rotationText: '21h 30m / 18.2°',
-    gravity: 'Gravity: 10.6 m/s²',
+    rotationText: '9h 55m / 18.2°',
+    gravity: 'Gravity: 24.79 m/s²',
     atmosphere: '77% Nitrogen, 22% Oxygen, rich biosphere mist & aurorae',
     description:
-      'An unspoiled pastoral Super-Earth of sprawling redwood continents, alpine lakes, deep sapphire seas, and crisp highland valleys.',
+      'The largest planetary giant in the system, sized to the 5th human solar system planet (139,820 km) while retaining lush Earth continents of sprawling redwood forests and deep sapphire seas.',
   },
   {
     id: 'hyperborea',
     keybind: '6',
     name: 'Hyperborea',
     order: 'REALM // 06',
-    classification: 'Boreal Terrestrial Earth World',
-    radius: 5.2,
-    distance: 200,
+    classification: 'Boreal Titan Earth World (Saturn-Scale)',
+    radius: 9.45,
+    distance: 206,
     orbitalSpeed: 0.51,
     rotationSpeed: 0.012,
     tilt: 26.2,
     eccentricity: 0.022,
     color: '#60a5fa',
     badgeBg: 'radial-gradient(circle at 30% 30%, #e0f2fe, #2563eb, #1e1b4b)',
-    diameter: '15,900 km',
-    distanceText: '2.10 AU',
-    orbitText: '820 Days',
+    diameter: '116,460 km',
+    distanceText: '9.58 AU',
+    orbitText: '29.45 Years',
     tempText: '9°C Mean (Boreal Alpine)',
     moonsText: '1 (Boreas)',
-    rotationText: '24h 20m / 26.2°',
-    gravity: 'Gravity: 9.88 m/s²',
+    rotationText: '10h 33m / 26.2°',
+    gravity: 'Gravity: 10.44 m/s²',
     atmosphere: '78% Nitrogen, 21% Oxygen, crystalline polar clouds',
     description:
-      'A majestic northern-style Earth world of pine-covered continents, dramatic fjord coastlines, geothermal valleys, and expansive polar ice caps.',
+      'The second-largest giant world, sized to the 6th human solar system planet (116,460 km) with pine-covered Earth continents, dramatic fjord coastlines, and expansive polar ice caps.',
   },
   {
     id: 'avalon',
     keybind: '7',
     name: 'Avalon',
     order: 'REALM // 07',
-    classification: 'Misty Isle Earth World',
-    radius: 4.4,
-    distance: 234,
+    classification: 'Misty Isle Giant Earth World (Uranus-Scale)',
+    radius: 6.8,
+    distance: 242,
     orbitalSpeed: 0.4,
     rotationSpeed: 0.0115,
     tilt: 22.8,
     eccentricity: 0.014,
     color: '#34d399',
     badgeBg: 'radial-gradient(circle at 30% 30%, #a7f3d0, #0d9488, #1e3a8a)',
-    diameter: '13,880 km',
-    distanceText: '2.65 AU',
-    orbitText: '1,120 Days',
+    diameter: '50,724 km',
+    distanceText: '19.20 AU',
+    orbitText: '84.02 Years',
     tempText: '13°C Mean (Temperate Maritime)',
     moonsText: '1 (Nimue)',
-    rotationText: '24h 40m / 22.8°',
-    gravity: 'Gravity: 9.72 m/s²',
+    rotationText: '17h 14m / 22.8°',
+    gravity: 'Gravity: 8.69 m/s²',
     atmosphere: '78% Nitrogen, 21% Oxygen, silver-white atmospheric cloud swirls',
     description:
-      'A mystical Earth-twin of emerald island continents, inland freshwater seas, silver cloud ribbons, and calm aquamarine coastal shelves.',
+      'Sized to the 7th human solar system planet (50,724 km), preserving emerald island continents, inland freshwater seas, silver cloud ribbons, and calm aquamarine coastal shelves.',
   },
   {
     id: 'aether',
     keybind: '8',
     name: 'Aether',
     order: 'REALM // 08',
-    classification: 'Celestial Frontier Earth World',
-    radius: 4.6,
-    distance: 268,
+    classification: 'Celestial Frontier Giant Earth World (Neptune-Scale)',
+    radius: 6.55,
+    distance: 274,
     orbitalSpeed: 0.32,
     rotationSpeed: 0.013,
     tilt: 20.5,
     eccentricity: 0.01,
     color: '#818cf8',
     badgeBg: 'radial-gradient(circle at 30% 30%, #c7d2fe, #0284c7, #1e1b4b)',
-    diameter: '14,350 km',
-    distanceText: '3.20 AU',
-    orbitText: '1,480 Days',
+    diameter: '49,244 km',
+    distanceText: '30.05 AU',
+    orbitText: '164.8 Years',
     tempText: '12°C Mean (Highland Earth)',
     moonsText: '1 (Hemera)',
-    rotationText: '23h 15m / 20.5°',
-    gravity: 'Gravity: 9.90 m/s²',
+    rotationText: '16h 06m / 20.5°',
+    gravity: 'Gravity: 11.15 m/s²',
     atmosphere: '78% Nitrogen, 21% Oxygen, high-altitude indigo-blue Rayleigh halo',
     description:
-      'The outermost sovereign Earth world, where deep indigo oceans meet lush temperate continents beneath a luminous sapphire-violet atmospheric crown.',
+      'The outermost sovereign giant Earth world, sized to the 8th human solar system planet (49,244 km), where deep indigo oceans meet lush temperate continents.',
   },
   {
     id: 'orion',
@@ -3623,14 +5431,18 @@ export default function SolarSystem3D() {
     }
     return 'gaia';
   });
-  const [showClaimModal, setShowClaimModal] = useState<boolean>(() => {
-    try {
-      return !localStorage.getItem('sovereign_home_planet_v1');
-    } catch {
-      return false;
+  const [showClaimModal, setShowClaimModal] = useState<boolean>(false);
+  const [activeSurfacePlanetId, setActiveSurfacePlanetId] = useState<string | null>(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('space') === '1') {
+        return null;
+      }
+      return params.get('planet') || 'gaia';
     }
+    return 'gaia';
   });
-  const [activeSurfacePlanetId, setActiveSurfacePlanetId] = useState<string | null>(null);
+  const [planetViewEngine, setPlanetViewEngine] = useState<'r3f' | 'classic'>('r3f');
   const [selectedPlanetId, setSelectedPlanetId] = useState<string>('gaia');
   const [divingToEarth, setDivingToEarth] = useState(false);
   const [sidePanelOpen, setSidePanelOpen] = useState<boolean>(false);
@@ -5675,9 +7487,23 @@ export default function SolarSystem3D() {
       ownerName: 'Commander (You)',
       isPlayer: true,
     };
+    if (planetViewEngine === 'r3f') {
+      return (
+        <PlanetaryWorldR3F
+          planetId={activeSurfacePlanetId}
+          planetName={pData?.name || 'Gaia'}
+          ownerName={sovInfo.ownerName}
+          isOwner={sovInfo.isPlayer}
+          onExitToSpace={() => setActiveSurfacePlanetId(null)}
+          onSwitchToClassicView={() => setPlanetViewEngine('classic')}
+          onEnterSquareBase={() => setPlanetViewEngine('classic')}
+        />
+      );
+    }
     return (
       <EarthBase3DView
         onExitToSpace={() => setActiveSurfacePlanetId(null)}
+        onSwitchToR3FView={() => setPlanetViewEngine('r3f')}
         planetId={activeSurfacePlanetId}
         planetName={pData?.name || 'Gaia'}
         ownerName={sovInfo.ownerName}

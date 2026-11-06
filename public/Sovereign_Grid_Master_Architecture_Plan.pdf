@@ -1,0 +1,200 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [5 0 R 7 0 R 9 0 R] /Count 3 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>
+endobj
+5 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595.28 841.89] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 6 0 R >>
+endobj
+6 0 obj
+<< /Length 6125 >>
+stream
+0.06 0.09 0.16 rg 36 804 523 22 re f
+BT /F2 8.5 Tf 0.22 0.74 0.97 rg 44 812 Td (SOVEREIGN GRID // MASTER ARCHITECTURE & GAME DESIGN PLAN) Tj ET
+BT /F1 8.5 Tf 0.8 0.85 0.92 rg 515 812 Td (Page 1) Tj ET
+0.04 0.07 0.15 rg 36.0 736.0 523.3 52 re f
+0.96 0.62 0.04 rg 36.0 734.0 523.3 3 re f
+BT /F2 15 Tf 1 1 1 rg 48.0 760.0 Td (SOVEREIGN GRID: 3D PLANETARY & SQUARE ECOSYSTEM) Tj ET
+BT /F1 9.5 Tf 0.75 0.84 0.96 rg 48.0 742.0 Td (Master Project Specification, Game Design & 3D Model Architecture Plan \(Compiled from Full Chat\)) Tj ET
+0.01 0.52 0.78 rg 42.0 709.0 3.5 14 re f
+BT /F2 11.5 Tf 0.06 0.09 0.16 rg 51.0 712.0 Td (1. Executive Vision & Core Game Loop) Tj ET
+BT /F1 9.5 Tf 0.12 0.16 0.23 rg 42.0 696.0 Td (Sovereign Grid unifies a 3D Human-Scale Solar System, a Free Fire \(FF\)-style Open Planetary) Tj ET
+BT /F1 9.5 Tf 0.12 0.16 0.23 rg 42.0 682.5 Td (Map \(82% Forest + 18% Oceans\), and Clash-of-Clans \(CoC\) Fortified Squares with a gamified) Tj ET
+BT /F1 9.5 Tf 0.12 0.16 0.23 rg 42.0 669.0 Td (mastery and strategy ecosystem.) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 652.5 Td (* Focused 1-Planet Strategy: Perfected deeply on Planet 1 \(Gaia\) first so all FF horseback) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 639.5 Td (  travel, globe joystick controls, CoC Squares, Floating Sky Main Halls, and Giant 3D) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 626.5 Td (  Tracker Rooms work seamlessly before expanding unique infrastructures to the remaining 7) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 613.5 Td (  planets.) Tj ET
+0.01 0.52 0.78 rg 42.0 587.0 3.5 14 re f
+BT /F2 11.5 Tf 0.06 0.09 0.16 rg 51.0 590.0 Td (2. 3D Solar System Layer \(Orbit View - Human Solar System Scale\)) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 574.0 Td (* Human Solar System Planet Sizes \(Earth Landmass Preserved\): All 8 planets in Orbit) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 561.0 Td (  retain their Earth-class continents, specular oceans, cloud decks, and natural moons,) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 548.0 Td (  while their 3D radii and diameters match the exact Human Solar System hierarchy:) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 532.5 Td (* - Orbit 01 | Gaia \(Home\)   : Mercury-Scale \(4,879 km diameter, 3D radius 1.85\) - 82%) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 519.5 Td (  Emerald Forest + 18% Ocean) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 504.0 Td (* - Orbit 02 | Olympus       : Venus-Scale   \(12,104 km diameter, 3D radius 4.55\) -) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 491.0 Td (  Highland Earth Continents & Seas) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 475.5 Td (* - Orbit 03 | Elysium       : Earth-Scale   \(12,742 km diameter, 3D radius 4.80\) -) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 462.5 Td (  Verdant Rainforest Continents) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 447.0 Td (* - Orbit 04 | Atlantis      : Mars-Scale    \(6,779 km diameter, 3D radius 2.55\) - Pelagic) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 434.0 Td (  Island Continents) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 418.5 Td (* - Orbit 05 | Arcadia       : Jupiter-Scale \(139,820 km diameter, 3D radius 11.20\) -) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 405.5 Td (  Largest Giant Earth World) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 390.0 Td (* - Orbit 06 | Hyperborea    : Saturn-Scale  \(116,460 km diameter, 3D radius 9.45\) - 2nd) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 377.0 Td (  Largest Giant Earth World) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 361.5 Td (* - Orbit 07 | Avalon        : Uranus-Scale  \(50,724 km diameter, 3D radius 6.80\) -) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 348.5 Td (  Ice-Giant Sized Earth World) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 333.0 Td (* - Orbit 08 | Aether        : Neptune-Scale \(49,244 km diameter, 3D radius 6.55\) - Outer) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 320.0 Td (  Giant Earth World) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 304.5 Td (* Orbit Navigation: Click the Orbit button in the top-right bar at any time to jump to the) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 291.5 Td (  3D Solar System, fly in 6DOF Spaceship Cockpit mode, or select any planet to drop back) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 278.5 Td (  onto its surface.) Tj ET
+0.01 0.52 0.78 rg 42.0 252.0 3.5 14 re f
+BT /F2 11.5 Tf 0.06 0.09 0.16 rg 51.0 255.0 Td (3. Free Fire \(FF\)-Style Planetary Surface Map \(82% Forest\)) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 239.0 Td (* Solid 3D Spherical Earth: Continuous 3D planet terrain with 82% emerald forest landmass) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 226.0 Td (  coverage, golden coastal beaches, turquoise shallows, and 18% deep sapphire ocean) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 213.0 Td (  basins.) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 197.5 Td (* GPU-Instanced 3D Forest \(tree_forest.glb\): Your custom Google Drive tree model is) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 184.5 Td (  GPU-instanced hundreds of times across the 82% forest continent at 60 FPS using) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 171.5 Td (  THREE.InstancedMesh.) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 156.0 Td (* Far-Apart Continental Places: Places are distributed across distant regions of the globe) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 143.0 Td (  \(Sovereign Sanctum HQ, Asia Silk Citadel, Americas Sierra Redoubt, Smriti Library, Ares) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 130.0 Td (  War Camp, Temporal Crucible, Arka Treasury Vault, Pelagic Trade Harbor\).) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 114.5 Td (* Horseback Travel & Dual Joystick Controls: Ride a 3D horse from place to place using) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 101.5 Td (  WASD / Arrow Keys or the on-screen Horse Ride Joystick \(with Gallop and Rear/Jump) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 88.5 Td (  buttons\), or toggle to Rotate Globe Mode to spin and inspect the planet from above.) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 73.0 Td (* FF Planet Radar Minimap: Live bottom-left tactical radar displaying your heading, all) Tj ET
+endstream
+endobj
+7 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595.28 841.89] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 8 0 R >>
+endobj
+8 0 obj
+<< /Length 6241 >>
+stream
+0.06 0.09 0.16 rg 36 804 523 22 re f
+BT /F2 8.5 Tf 0.22 0.74 0.97 rg 44 812 Td (SOVEREIGN GRID // MASTER ARCHITECTURE & GAME DESIGN PLAN) Tj ET
+BT /F1 8.5 Tf 0.8 0.85 0.92 rg 515 812 Td (Page 2) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 778.0 Td (  planetary places, and one-click horse travel or Square entry.) Tj ET
+0.01 0.52 0.78 rg 42.0 751.5 3.5 14 re f
+BT /F2 11.5 Tf 0.06 0.09 0.16 rg 51.0 754.5 Td (4. Dummy Level Monuments Visible from Above Earth) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 738.5 Td (* Every place on the planet surface projects a 3D Tiered Holographic Dummy Level Totem) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 725.5 Td (  \(e.g., Lv.14, Lv.17\) visible from high above Earth.) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 710.0 Td (* Logging progress in shops, training army units, or placing Clan War trophies dynamically) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 697.0 Td (  increases the place Dummy Level and visual tier.) Tj ET
+0.01 0.52 0.78 rg 42.0 670.5 3.5 14 re f
+BT /F2 11.5 Tf 0.06 0.09 0.16 rg 51.0 673.5 Td (5. Clash-of-Clans \(CoC\) Squares, Floating Sky Main Hall & Sky Stairs) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 657.5 Td (* Fortified CoC Square Layout: Every place on the planet has an enterable CoC Square) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 644.5 Td (  featuring a checkerboard lawn, perimeter walls, specialized Shops, and a waiting) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 631.5 Td (  Warhorse at the NW trail gate to ride back to the planet.) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 616.0 Td (* FF Walk View vs. CoC Top View: Walk, sprint, and jump on foot inside every Square like) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 603.0 Td (  in Free Fire \(3rd-person chase camera\) or switch to CoC Top View \(isometric overview\).) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 587.5 Td (* Floating Sky Main Hall \(main_hall.glb\) Outside the Square Box: Your custom 3D Main Hall) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 574.5 Td (  model hovers high in the air \(Y = 7.2, Z = -24.5\) outside the northern gate of every) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 561.5 Td (  Square Box, supported by a floating sky-island rock spire and glowing anti-gravity) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 548.5 Td (  levitation rings.) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 533.0 Td (* 24-Step Climbable 3D Sky Staircase: A golden walkway leads from the central square) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 520.0 Td (  compass \(0,0,0\) to the northern gate \(Z = -12\), where a 24-step illuminated 3D Sky) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 507.0 Td (  Staircase rises through the air to the Floating Sky Main Hall. In FF Walk View, walking) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 494.0 Td (  North through the gate physically climbs all 24 steps into the sky onto the floating) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 481.0 Td (  Main Hall terrace.) Tj ET
+0.01 0.52 0.78 rg 42.0 454.5 3.5 14 re f
+BT /F2 11.5 Tf 0.06 0.09 0.16 rg 51.0 457.5 Td (6. Library Square, Tracker Shops & FF Training Room \(Colossal 3D Tracker\)) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 441.5 Td (* Library Square Tracker Shops: Entering Smriti Library Square gives access to 4) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 428.5 Td (  specialized shops to log details across multiple trackers:) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 413.0 Td (* 1. Mistake Autopsy Shop  - Error patterns, silly mistakes, and root-cause fixes.) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 397.5 Td (* 2. Exam & Mock Score Shop - Full-length mock test scores, percentile trends, and) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 384.5 Td (  accuracy.) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 369.0 Td (* 3. Syllabus Codex Shop    - Chapter completion, revision passes, and mastery) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 356.0 Td (  checkpoints.) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 340.5 Td (* 4. Deep Drill Speed Shop  - Timed problem batches and speed-drill logs.) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 325.0 Td (* Log Progress -> FF Training Room Scene: Clicking Log Progress in any shop transitions) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 312.0 Td (  into a 3D FF Training Room where a 3D player character stands holding a glowing logging) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 299.0 Td (  device in front of a colossal, towering 3D Holographic Tracker Monolith \(trackers look) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 286.0 Td (  massive in this scene\). While the 3D character beams data into the monument, you log) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 273.0 Td (  your real entries via the console.) Tj ET
+0.01 0.52 0.78 rg 42.0 246.5 3.5 14 re f
+BT /F2 11.5 Tf 0.06 0.09 0.16 rg 51.0 249.5 Td (7. Army Place & Troop Dispatch System) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 233.5 Td (* Train and expand your planetary armed forces in the Army Camp across 3 unit tiers:) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 220.5 Td (  Vanguard Infantry, Siege Breakers, and Plasma Lancers.) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 205.0 Td (* Dispatch trained armies to fortify planetary places or launch orbital attacks on) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 192.0 Td (  mineral-rich asteroids.) Tj ET
+0.01 0.52 0.78 rg 42.0 165.5 3.5 14 re f
+BT /F2 11.5 Tf 0.06 0.09 0.16 rg 51.0 168.5 Td (8. Money & Mining Square, Asteroid Tracker & Live 3D Asteroid Scene) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 152.5 Td (* Money & Mining Square: Mine CE currency, collect stores, visit resource shops, and train) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 139.5 Td (  Mining Engineers equipped with heavy extraction tools.) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 124.0 Td (* Interactive Asteroid Mineral Tracker: Tracks near-orbit mineral asteroids \(16-Psyche) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 111.0 Td (  Core Shard, Kepler-Veld Cobalt Belt, Aetherium Monolith, Chronos Sovereign Vein\).) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 95.5 Td (* Two-Stage Asteroid Operations:) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 80.0 Td (* - Phase 1 \(Army Combat Strike - ~5 Minutes\): Dispatched Army fights to clear orbital) Tj ET
+endstream
+endobj
+9 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595.28 841.89] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 10 0 R >>
+endobj
+10 0 obj
+<< /Length 3846 >>
+stream
+0.06 0.09 0.16 rg 36 804 523 22 re f
+BT /F2 8.5 Tf 0.22 0.74 0.97 rg 44 812 Td (SOVEREIGN GRID // MASTER ARCHITECTURE & GAME DESIGN PLAN) Tj ET
+BT /F1 8.5 Tf 0.8 0.85 0.92 rg 515 812 Td (Page 3) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 778.0 Td (  defenses.) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 762.5 Td (* - Phase 2 \(Engineer Extraction - 5 Hours to 5 Days\): Once combat succeeds, Mining) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 749.5 Td (  Engineers deploy laser drills to extract minerals over 5 hours to 5 days based on level) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 736.5 Td (  and difficulty.) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 721.0 Td (* Live 3D Asteroid Scene \(Go to Asteroid 3D\): Visit any asteroid in 3D at any time to) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 708.0 Td (  watch the live orbital battle or 3D Engineer laser-drilling rigs extracting minerals.) Tj ET
+0.01 0.52 0.78 rg 42.0 681.5 3.5 14 re f
+BT /F2 11.5 Tf 0.06 0.09 0.16 rg 51.0 684.5 Td (9. Clan War Rewards & Monument Placement) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 668.5 Td (* Win Clan War trophies \(Golden Siege Obelisk, Inferno Dragon Brazier, Aether Crystal) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 655.5 Td (  Pylon, Sovereign Grand Banner\) and place or relocate them freely either inside any CoC) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 642.5 Td (  Square or directly on the Main Planet Surface.) Tj ET
+0.01 0.52 0.78 rg 42.0 616.0 3.5 14 re f
+BT /F2 11.5 Tf 0.06 0.09 0.16 rg 51.0 619.0 Td (10. Headquarters \(Main Hall Square\), Trusts & Weekly 3D Council Meeting) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 603.0 Td (* Headquarters Trust Buildings: Houses embassy buildings for the different Trusts from all) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 590.0 Td (  places across the planet \(Library Knowledge Trust, Kshatriya Defense Trust, Dhana) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 577.0 Td (  Treasury Trust, Tarka Logic Trust\).) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 561.5 Td (* Weekly Interactive 3D AI Council Meeting: 5 animated 3D Delegate models gather around a) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 548.5 Td (  central holotable and speak in turn, presenting only basic public info of the planet and) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 535.5 Td (  all places \(forest coverage, Main Hall levels, army readiness, and asteroid mining) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 522.5 Td (  status\) while never exposing your private logged entries.) Tj ET
+0.01 0.52 0.78 rg 42.0 496.0 3.5 14 re f
+BT /F2 11.5 Tf 0.06 0.09 0.16 rg 51.0 499.0 Td (11. Custom External 3D Model \(.glb\) Pipeline & Next Models Checklist) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 483.0 Td (* INTEGRATED: tree_forest.glb -> GPU-instanced across 82% of Planet Gaia forest landmass.) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 467.5 Td (* INTEGRATED: main_hall.glb   -> Floating Sky Main Hall outside every Square Box + on) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 454.5 Td (  Planet Surface with 24-step Sky Stairs.) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 439.0 Td (* READY TO DROP IN NEXT \(via Google Drive link\):) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 423.5 Td (* - Green & Icy Mountains \(.glb\) for alpine ridges and polar peaks on the planet surface.) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 408.0 Td (* - Shop & Trust Buildings \(.glb\) for Library, Money/Mining, and Headquarters Squares.) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 392.5 Td (* - Warhorse & Rider \(.glb\) for planetary horseback travel and Square gates.) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 377.0 Td (* - Player & Army Troop Units \(.glb\) for FF walking, Training Room, and Army Camp.) Tj ET
+BT /F1 9.3 Tf 0.12 0.16 0.23 rg 48.0 361.5 Td (* - Asteroid Drilling Rigs & Clan War Trophies \(.glb\).) Tj ET
+endstream
+endobj
+xref
+0 11
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000133 00000 n 
+0000000203 00000 n 
+0000000278 00000 n 
+0000000420 00000 n 
+0000006597 00000 n 
+0000006739 00000 n 
+0000013032 00000 n 
+0000013175 00000 n 
+trailer
+<< /Size 11 /Root 1 0 R >>
+startxref
+17074
+%%EOF

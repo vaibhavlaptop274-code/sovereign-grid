@@ -21,6 +21,7 @@ export default defineConfig({
     host: '0.0.0.0',
     port: 3000,
     allowedHosts: true,
+    hmr: false,
   },
   resolve: {
     alias: {
@@ -28,10 +29,10 @@ export default defineConfig({
     },
   },
   optimizeDeps: {
+    entries: ['index.html'],
+    include: ['react', 'react-dom', 'three', '@react-three/fiber'],
     exclude: ['lucide-react'],
   },
-  // Transpile React Three Fiber packages — they ship untranspiled JSX/ESM
-  // that Vite's pre-bundler can choke on in production builds.
   build: {
     chunkSizeWarningLimit: 1500,
   },

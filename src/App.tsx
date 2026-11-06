@@ -23,8 +23,11 @@ function Gate() {
 
 export default function App() {
   return (
-    <AuthProvider>
-      <Gate />
-    </AuthProvider>
+    <div className="crt-overlay">
+      <AuthProvider>
+        <Gate />
+      </AuthProvider>
+    </div>
   );
 }
+

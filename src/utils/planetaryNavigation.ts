@@ -310,15 +310,15 @@ export function stepSphericalRider(
     );
   }
 
-  // Jump physics
+  // Jump physics (lofty show-jumping bascule arc)
   let jumpVel = state.jumpVel;
   let jumpOffset = state.jumpOffset;
   if (input.jump && jumpOffset <= 0.001) {
-    jumpVel = 5.2;
+    jumpVel = 6.8;
   }
   if (jumpOffset > 0 || jumpVel > 0) {
     jumpOffset += jumpVel * clampedDt;
-    jumpVel -= 14.5 * clampedDt;
+    jumpVel -= 12.5 * clampedDt;
     if (jumpOffset <= 0) {
       jumpOffset = 0;
       jumpVel = 0;
@@ -354,3 +354,96 @@ export function stepSphericalRider(
     isWater: finalEval.isWater,
   };
 }
+
+export interface EquineBiomechanicsState {
+  moveFactor: number;
+  gallopBlend: number;
+  whinnyIntensity: number;
+  jumpArc: number;
+  rearAngleRad: number;
+  saddleHeightY: number;
+  saddlePitchRad: number;
+}
+
+/**
+ * Pure biomechanics calculator for the 3D Horse's 4-beat natural walk,
+ * 4-beat rotary gallop, rearing whinny, and bascule jump arc.
+ */
+export function computeEquineBiomechanics(params: {
+  speedAbs: number;
+  gallop: boolean;
+  gaitPhase: number;
+  jumpOffset: number;
+  jumpVel: number;
+  whinnyTimeRemaining: number;
+  whinnyDuration?: number;
+}): EquineBiomechanicsState {
+  const {
+    speedAbs,
+    gallop,
+    gaitPhase,
+    jumpOffset,
+    jumpVel,
+    whinnyTimeRemaining,
+    whinnyDuration = 1.85,
+  } = params;
+
+  const isMoving = speedAbs > 0.12;
+  const rawMove = isMoving ? clamp(speedAbs / 6.8, 0.32, 1.35) : 0;
+  const gallopBlend = isMoving
+    ? gallop || speedAbs > 7.4
+      ? clamp((speedAbs - 5.2) / 4.2, 0.65, 1.0)
+      : 0.0
+    : 0.0;
+
+  // Whinny progress: 0 -> 1 over whinnyDuration
+  let whinnyIntensity = 0;
+  if (whinnyTimeRemaining > 0 && whinnyDuration > 0) {
+    const progress = clamp(1.0 - whinnyTimeRemaining / whinnyDuration, 0, 1);
+    // Quick athletic rear-up, sustained neigh at peak, smooth descent
+    whinnyIntensity = Math.pow(Math.sin(progress * Math.PI), 0.68);
+  }
+
+  // Jump bascule arc: 0 on ground, >0 in air
+  let jumpArc = 0;
+  if (jumpOffset > 0.005 || Math.abs(jumpVel) > 0.05) {
+    //jumpVel starts at +5.2 and goes to -5.2 on landing
+    const normVel = clamp(jumpVel / 5.2, -1, 1);
+    // Map normVel (+1 at takeoff -> 0 at apex -> -1 at landing) to [0.05 .. 0.98]
+    jumpArc = clamp(0.5 - normVel * 0.46, 0.05, 0.98);
+  }
+
+  // Rearing angle around hind hooves (radians)
+  const jumpPitch =
+    jumpArc > 0
+      ? Math.cos(jumpArc * Math.PI) * 0.28
+      : 0;
+  const gallopRock =
+    gallopBlend > 0.1
+      ? Math.sin(gaitPhase) * 0.075 * rawMove * gallopBlend
+      : Math.sin(gaitPhase * 2.0) * 0.022 * rawMove;
+  const rearAngleRad = whinnyIntensity * 0.46 + Math.max(0, jumpPitch);
+
+  // Compute where the saddle seat (local y=1.08, z=-0.18 relative to hind hooves y=0.05, z=-0.60) moves
+  const dy = 1.08 - 0.05;
+  const dz = -0.18 - -0.60; // +0.42m forward of hind hooves
+  const rotY = dy * Math.cos(rearAngleRad) + dz * Math.sin(rearAngleRad);
+  const strideBob =
+    gallopBlend > 0.2
+      ? Math.abs(Math.cos(gaitPhase)) * 0.065 * rawMove
+      : Math.abs(Math.sin(gaitPhase * 2.0)) * 0.028 * rawMove;
+
+  const saddleHeightY = 0.05 + rotY + strideBob;
+  const saddlePitchRad = -rearAngleRad + gallopRock;
+
+  return {
+    moveFactor: rawMove,
+    gallopBlend,
+    whinnyIntensity,
+    jumpArc,
+    rearAngleRad,
+    saddleHeightY,
+    saddlePitchRad,
+  };
+}
+

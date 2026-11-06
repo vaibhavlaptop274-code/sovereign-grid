@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  computeEquineBiomechanics,
   computeSphericalBasis,
   evaluateShaderMatchedElevation,
   latLonToNormal,
@@ -94,4 +95,51 @@ describe('planetaryNavigation pure logic', () => {
     const distFromOrigin = Math.hypot(stepped.position.x, stepped.position.y, stepped.position.z);
     assert.ok(distFromOrigin > 28, '3D position should sit above base sphere radius');
   });
+
+  it('computes equine biomechanics for natural walk, gallop, whinnying rear, and jump arc', () => {
+    const walkState = computeEquineBiomechanics({
+      speedAbs: 4.5,
+      gallop: false,
+      gaitPhase: 1.2,
+      jumpOffset: 0,
+      jumpVel: 0,
+      whinnyTimeRemaining: 0,
+    });
+    assert.ok(walkState.moveFactor > 0.3, 'walk should produce positive moveFactor');
+    assert.equal(walkState.gallopBlend, 0, 'walk should have 0 gallopBlend');
+
+    const gallopState = computeEquineBiomechanics({
+      speedAbs: 10.5,
+      gallop: true,
+      gaitPhase: 2.4,
+      jumpOffset: 0,
+      jumpVel: 0,
+      whinnyTimeRemaining: 0,
+    });
+    assert.ok(gallopState.gallopBlend > 0.8, 'gallop should activate high gallopBlend');
+
+    const whinnyState = computeEquineBiomechanics({
+      speedAbs: 0,
+      gallop: false,
+      gaitPhase: 0,
+      jumpOffset: 0,
+      jumpVel: 0,
+      whinnyTimeRemaining: 0.9,
+      whinnyDuration: 1.8,
+    });
+    assert.ok(whinnyState.whinnyIntensity > 0.9, 'mid-whinny should reach peak intensity');
+    assert.ok(whinnyState.rearAngleRad > 0.4, 'whinny should rear horse upward on hind legs');
+    assert.ok(whinnyState.saddleHeightY > 1.15, 'saddle should rise during whinny rear');
+
+    const jumpApex = computeEquineBiomechanics({
+      speedAbs: 6.0,
+      gallop: false,
+      gaitPhase: 1.0,
+      jumpOffset: 0.85,
+      jumpVel: 0.0,
+      whinnyTimeRemaining: 0,
+    });
+    assert.ok(jumpApex.jumpArc > 0.4 && jumpApex.jumpArc < 0.6, 'apex of jump should be near 0.5 arc');
+  });
 });
+

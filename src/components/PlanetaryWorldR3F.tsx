@@ -22,6 +22,7 @@ import {
   ArrowLeft,
 } from 'lucide-react';
 import {
+  computeEquineBiomechanics,
   computeSphericalBasis,
   evaluateShaderMatchedElevation,
   latLonToNormal,
@@ -46,16 +47,21 @@ import {
 } from '@/utils/planetEcosystemState';
 import {
   AsteroidMiningSceneR3F,
+  BoyCharacter3D,
   ClanWarTrophyMesh,
   DaytimeSkyDomeWithClouds,
   getCoCSquareTexture,
   MiniFloatingHall3D,
   PlanetDummyLevelTotem,
+  playHorseJumpSound,
+  playHorseWhinnySound,
   SquareBaseSceneR3F,
   SquareBaseTerrainModel3D,
   TownHallModel3D,
   TrainingRoomTrackerSceneR3F,
+  UserHorseModel3D,
   WeeklyCouncilMeetingSceneR3F,
+  type HorseAnimRefs,
 } from './PlanetScenesR3F';
 
 /* ============================================================================
@@ -163,6 +169,53 @@ export const PLANET_LANDMARKS: PlanetLandmarkSpot[] = [
 
 
 const R_PLANET = 28;
+
+const IS_SOFTWARE_GL = (() => {
+  if (typeof document === 'undefined') return false;
+  const gl = document.createElement('canvas').getContext('webgl2');
+  if (!gl) return true;
+  const ext = gl.getExtension('WEBGL_debug_renderer_info');
+  const param = ext ? ext.UNMASKED_RENDERER_WEBGL : gl.RENDERER;
+  const gpu = String(gl.getParameter(param));
+  gl.getExtension('WEBGL_lose_context')?.loseContext();
+  return /SwiftShader|llvmpipe|softpipe|Software|Basic Render/i.test(gpu);
+})();
+
+function SoftwareGlFramePacer() {
+  const { gl, invalidate } = useThree();
+  const busyRef = useRef(false);
+  const timerRef = useRef(0);
+
+  useEffect(() => {
+    invalidate();
+    return () => {
+      window.clearTimeout(timerRef.current);
+    };
+  }, [invalidate]);
+
+  useFrame(() => {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    const ctx = gl.getContext() as WebGL2RenderingContext;
+    const sync = ctx.fenceSync ? ctx.fenceSync(ctx.SYNC_GPU_COMMANDS_COMPLETE, 0) : null;
+    ctx.flush();
+    const poll = () => {
+      const state = sync && ctx.getSyncParameter(sync, ctx.SYNC_STATUS);
+      if (sync && state === ctx.UNSIGNALED) {
+        timerRef.current = window.setTimeout(poll, 5);
+      } else {
+        if (sync) ctx.deleteSync(sync);
+        timerRef.current = window.setTimeout(() => {
+          busyRef.current = false;
+          invalidate();
+        }, 85);
+      }
+    };
+    timerRef.current = window.setTimeout(poll, 5);
+  });
+
+  return null;
+}
 
 /* ============================================================================
  * 1. CUSTOM GLSL SHADERS FOR CONTINUOUS NATURAL PLANET (OCEANS + LAND MASSES)
@@ -1053,16 +1106,20 @@ export function evaluateOpenWorldTerrain(wx: number, wz: number): {
   const padFlatMask =
     Math.abs(wz) < 62.0 ? 1.0 - THREE.MathUtils.smoothstep(distToRoadsidePads, 4.5, 9.5) : 0.0;
 
-  // 2. Winding Bermuda River Channel (East-West at wz ≈ -39, spanned by 3D bridges)
+  // 2. Winding Bermuda River Channel (East-West at wz ≈ -39, spanned by 3D bridges) + Foreground Roadside Forest Duckweed Pond (at wx ≈ 7.6, wz ≈ -12.2)
   const riverCenterZ = -39.0 + Math.sin(wx * 0.024) * 4.4;
   const distRiver = Math.abs(wz - riverCenterZ);
   const onBridgeCrossing = distSpineRoad < 4.5 || Math.abs(Math.abs(wx) - 56.0) < 4.5;
-  const riverMask = onBridgeCrossing
+  const channelRiverMask = onBridgeCrossing
     ? 0.0
     : 1.0 - THREE.MathUtils.smoothstep(distRiver, 3.0, 6.4);
 
+  const distPond = Math.hypot((wx - 7.6) * 0.88, (wz + 12.2) * 1.02);
+  const pondMask = 1.0 - THREE.MathUtils.smoothstep(distPond, 3.1, 5.1);
+  const riverMask = Math.max(channelRiverMask, pondMask);
+
   // 3. Defined Central Dirt Road Mask (half-width ~2.6m, blending into lush olive-green grass at 4.6m)
-  const roadMask = 1.0 - THREE.MathUtils.smoothstep(minRoadDist, 2.2, 4.6);
+  const roadMask = (1.0 - THREE.MathUtils.smoothstep(minRoadDist, 2.2, 4.6)) * (1.0 - pondMask);
   // Gentle grassy bank on the left & right, rising smoothly into wide rolling Bermuda hills & Peak plateau
   const leftBankMound =
     wx < mainRoadCenterX - 3.2
@@ -1097,9 +1154,11 @@ export function evaluateOpenWorldTerrain(wx: number, wz: number): {
     rawHillHeight * bankRise * (1.0 - squareFlatMask * 0.92) +
     leftBankMound * (1.0 - roadMask);
 
-  // Carve river channel bed or slight bridge arch crown
-  if (riverMask > 0.01) {
-    height = THREE.MathUtils.lerp(height, -0.78, riverMask);
+  // Carve river channel bed, foreground duckweed pond basin, or slight bridge arch crown
+  if (channelRiverMask > 0.01) {
+    height = THREE.MathUtils.lerp(height, -0.78, channelRiverMask);
+  } else if (pondMask > 0.01) {
+    height = THREE.MathUtils.lerp(height, -0.58, pondMask);
   } else if (onBridgeCrossing && distRiver < 5.8) {
     height = Math.max(height, (1.0 - distRiver / 5.8) * 0.36);
   }
@@ -1132,12 +1191,12 @@ interface BermudaBuildingSpec {
 }
 
 const BERMUDA_STRUCTURES: BermudaBuildingSpec[] = [
-  // Wide Foreground Bimasakti Strip Roadside Village sitting on lush olive-green grassy shoulders (matching image_442f5876.png)
-  { id: 'bima_cabin_l1', kind: 'wood_cabin', wx: -9.8, wz: -9.5, yaw: Math.PI / 2, scale: 1.08 },
-  { id: 'bima_cyan_r1', kind: 'two_story_cyan', wx: 10.6, wz: -15.5, yaw: -Math.PI / 2, scale: 1.1 },
-  { id: 'bima_wh_l2', kind: 'warehouse', wx: -11.4, wz: -20.5, yaw: Math.PI / 2, scale: 1.05 },
-  { id: 'bima_cabin_r2', kind: 'wood_cabin', wx: 12.2, wz: -27.5, yaw: -Math.PI / 2, scale: 1.0 },
-  { id: 'bima_tower_l', kind: 'watchtower', wx: -22.0, wz: -17.0, yaw: 0.2, scale: 1.15 },
+  // Wide Foreground Bimasakti Strip Roadside Village sitting on lush olive-green grassy shoulders
+  { id: 'bima_cabin_l1', kind: 'wood_cabin', wx: -10.8, wz: -9.5, yaw: Math.PI / 2, scale: 1.08 },
+  { id: 'bima_cyan_r1', kind: 'two_story_cyan', wx: 13.8, wz: -20.5, yaw: -Math.PI / 2, scale: 1.08 },
+  { id: 'bima_wh_l2', kind: 'warehouse', wx: -11.8, wz: -23.5, yaw: Math.PI / 2, scale: 1.05 },
+  { id: 'bima_cabin_r2', kind: 'wood_cabin', wx: 12.6, wz: -28.5, yaw: -Math.PI / 2, scale: 1.0 },
+  { id: 'bima_tower_l', kind: 'watchtower', wx: -8.2, wz: -15.5, yaw: 0.28, scale: 1.12 },
 
   // Wide River Bridge Crossings (spanning the Bermuda River at wz ≈ -39.0)
   { id: 'bridge_center', kind: 'bridge', wx: -0.8, wz: -39.0, yaw: 0, scale: 1.12 },
@@ -1358,50 +1417,120 @@ function FFBermudaStructureMesh({ spec }: { spec: BermudaBuildingSpec }) {
   }
 
   if (spec.kind === 'watchtower') {
-    // Tall Steel Lattice Radio / Sniper Watchtower on Bermuda Ridge
+    // Authentic Weathered Timber & Steel Fire Lookout Watchtower with Switchback Stairs & Survival Camp Props (matching video 00:48, 02:16, 02:45-03:23)
     return (
       <group position={[spec.wx, baseHeight, spec.wz]} rotation={[0, spec.yaw, 0]} scale={s}>
-        {/* 4 Tapered Steel Corner Legs */}
-        {[-0.95, 0.95].map((lx) =>
-          [-0.95, 0.95].map((lz) => (
+        {/* 4 Heavy Weathered Timber Corner Legs */}
+        {[-1.15, 1.15].map((lx) =>
+          [-1.15, 1.15].map((lz) => (
             <mesh
               key={`${lx}_${lz}`}
-              position={[lx * 0.75, 4.2, lz * 0.75]}
-              rotation={[lz * 0.06, 0, -lx * 0.06]}
+              position={[lx * 0.78, 4.3, lz * 0.78]}
+              rotation={[lz * 0.045, 0, -lx * 0.045]}
             >
-              <cylinderGeometry args={[0.07, 0.13, 8.4, 6]} />
-              <meshStandardMaterial color="#475569" roughness={0.5} metalness={0.45} />
+              <boxGeometry args={[0.2, 8.6, 0.2]} />
+              <meshStandardMaterial map={timberTex} color="#5c422c" roughness={0.88} />
             </mesh>
           )),
         )}
-        {/* Horizontal Lattice Brace Rings */}
-        {[2.2, 4.4, 6.6].map((hy, idx) => {
-          const w = 1.9 - idx * 0.32;
+        {/* Horizontal Structural Timber Girt Frames & X-Braces */}
+        {[1.9, 3.8, 5.7, 7.6].map((hy, idx) => {
+          const w = 2.15 - idx * 0.16;
           return (
-            <mesh key={hy} position={[0, hy, 0]}>
-              <boxGeometry args={[w, 0.1, w]} />
-              <meshStandardMaterial color="#64748b" roughness={0.55} metalness={0.35} />
-            </mesh>
+            <group key={hy} position={[0, hy, 0]}>
+              <mesh>
+                <boxGeometry args={[w, 0.14, w]} />
+                <meshStandardMaterial map={timberTex} color="#6b4e35" roughness={0.86} />
+              </mesh>
+              {/* Diagonal Cross-Brace Timber */}
+              <mesh position={[0, -0.88, w * 0.48]} rotation={[0, 0, idx % 2 === 0 ? 0.68 : -0.68]}>
+                <boxGeometry args={[w * 1.18, 0.09, 0.09]} />
+                <meshStandardMaterial map={timberTex} color="#4f3824" roughness={0.9} />
+              </mesh>
+            </group>
           );
         })}
-        {/* Sniper Lookout Platform Cabin at Top */}
-        <mesh position={[0, 8.4, 0]}>
-          <boxGeometry args={[1.95, 0.18, 1.95]} />
-          <meshStandardMaterial color="#334155" roughness={0.6} />
+        {/* Zig-Zagging Switchback Wooden Staircase Flights & Landings Inside Tower */}
+        {[0, 1, 2, 3].map((flightIdx) => {
+          const yStart = 0.25 + flightIdx * 1.9;
+          const dir = flightIdx % 2 === 0 ? 1 : -1;
+          return (
+            <group key={flightIdx} position={[dir * 0.25, yStart + 0.95, 0]}>
+              {/* Inclined Stair Stringer Ramp */}
+              <mesh rotation={[0.66 * dir, 0, 0]}>
+                <boxGeometry args={[0.64, 0.1, 2.35]} />
+                <meshStandardMaterial map={timberTex} color="#7c5a3a" roughness={0.85} />
+              </mesh>
+              {/* Wooden Handrail */}
+              <mesh position={[0.3, 0.45, 0]} rotation={[0.66 * dir, 0, 0]}>
+                <boxGeometry args={[0.06, 0.08, 2.35]} />
+                <meshStandardMaterial map={timberTex} color="#8c6744" roughness={0.82} />
+              </mesh>
+              {/* Switchback Landing Deck */}
+              <mesh position={[-dir * 0.25, 0.92, dir * 0.72]}>
+                <boxGeometry args={[1.55, 0.12, 0.72]} />
+                <meshStandardMaterial map={timberTex} color="#6e4f33" roughness={0.86} />
+              </mesh>
+            </group>
+          );
+        })}
+        {/* Upper Wooden Catwalk Deck & Perimeter Guardrails */}
+        <mesh position={[0, 8.55, 0]} castShadow receiveShadow>
+          <boxGeometry args={[2.95, 0.2, 2.95]} />
+          <meshStandardMaterial map={timberTex} color="#6e5034" roughness={0.86} />
         </mesh>
-        <mesh position={[0, 9.65, 0]} rotation={[0, Math.PI / 4, 0]}>
-          <coneGeometry args={[1.55, 0.75, 4]} />
-          <meshStandardMaterial color="#475569" roughness={0.55} />
+        {[-1.38, 1.38].map((rx) => (
+          <mesh key={`rail_x_${rx}`} position={[rx, 9.08, 0]}>
+            <boxGeometry args={[0.08, 0.9, 2.9]} />
+            <meshStandardMaterial map={timberTex} color="#7c5a3c" roughness={0.84} />
+          </mesh>
+        ))}
+        {[-1.38, 1.38].map((rz) => (
+          <mesh key={`rail_z_${rz}`} position={[0, 9.08, rz]}>
+            <boxGeometry args={[2.9, 0.9, 0.08]} />
+            <meshStandardMaterial map={timberTex} color="#7c5a3c" roughness={0.84} />
+          </mesh>
+        ))}
+        {/* Fire Lookout Cabin Box with Wrap-Around Observation Windows */}
+        <mesh position={[0, 9.58, 0]} castShadow>
+          <boxGeometry args={[2.1, 1.85, 2.1]} />
+          <meshStandardMaterial map={timberTex} color="#8a6644" roughness={0.82} />
         </mesh>
-        {/* Top Radio Mast & Red Beacon */}
-        <mesh position={[0, 11.2, 0]}>
-          <cylinderGeometry args={[0.03, 0.05, 2.6, 6]} />
-          <meshStandardMaterial color="#94a3b8" />
+        <mesh position={[0, 9.75, 0]}>
+          <boxGeometry args={[2.16, 0.72, 2.16]} />
+          <meshStandardMaterial color="#1e293b" roughness={0.18} metalness={0.68} />
         </mesh>
-        <mesh position={[0, 12.6, 0]}>
-          <sphereGeometry args={[0.14, 8, 8]} />
-          <meshBasicMaterial color="#ef4444" />
+        {/* Overhanging Pitched Wooden Shingle Hip Roof */}
+        <mesh position={[0, 10.92, 0]} rotation={[0, Math.PI / 4, 0]} castShadow>
+          <coneGeometry args={[2.15, 1.05, 4]} />
+          <meshStandardMaterial map={timberTex} color="#4a3728" roughness={0.85} />
         </mesh>
+        {/* Survival Camp Clearing Props at Base: Tarp-Covered Supply Pallet & Weathered Wooden Picnic Table */}
+        <group position={[2.25, 0, 1.1]} rotation={[0, -0.35, 0]}>
+          {/* Wooden Pallet Base */}
+          <mesh position={[0, 0.08, 0]}>
+            <boxGeometry args={[1.35, 0.14, 1.05]} />
+            <meshStandardMaterial map={timberTex} color="#6b4c30" roughness={0.88} />
+          </mesh>
+          {/* Blue/Teal Weatherproof Tarp Covering Stacked Supplies (matching video 03:13) */}
+          <mesh position={[0, 0.46, 0]}>
+            <boxGeometry args={[1.26, 0.64, 0.96]} />
+            <meshStandardMaterial color="#1d6fa5" roughness={0.58} />
+          </mesh>
+        </group>
+        {/* Weathered Wooden Picnic Table by the Watchtower Clearing */}
+        <group position={[-2.15, 0, 1.45]} rotation={[0, 0.42, 0]}>
+          <mesh position={[0, 0.56, 0]}>
+            <boxGeometry args={[1.45, 0.08, 0.72]} />
+            <meshStandardMaterial map={timberTex} color="#755538" roughness={0.86} />
+          </mesh>
+          {[-0.52, 0.52].map((bz) => (
+            <mesh key={bz} position={[0, 0.34, bz]}>
+              <boxGeometry args={[1.42, 0.06, 0.24]} />
+              <meshStandardMaterial map={timberTex} color="#6b4d32" roughness={0.88} />
+            </mesh>
+          ))}
+        </group>
       </group>
     );
   }
@@ -1431,88 +1560,277 @@ function FFBermudaStructureMesh({ spec }: { spec: BermudaBuildingSpec }) {
   );
 }
 
+const DUCKWEED_WATER_FRAGMENT_SHADER = `
+  uniform float uTime;
+  uniform vec3 uSunDir;
+  uniform vec3 uDeepColor;
+  uniform vec3 uShallowColor;
+  uniform vec3 uSkyReflectColor;
+  varying vec3 vWorldPos;
+  varying vec2 vUv;
+
+  float hashW(vec2 p) {
+    return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
+  }
+
+  float noiseW(vec2 p) {
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    return mix(
+      mix(hashW(i), hashW(i + vec2(1.0, 0.0)), f.x),
+      mix(hashW(i + vec2(0.0, 1.0)), hashW(i + vec2(1.0, 1.0)), f.x),
+      f.y
+    );
+  }
+
+  float fbmW(vec2 p) {
+    float v = 0.0;
+    v += 0.50 * noiseW(p); p *= 2.03;
+    v += 0.25 * noiseW(p); p *= 2.01;
+    v += 0.125 * noiseW(p); p *= 2.02;
+    v += 0.0625 * noiseW(p);
+    return v;
+  }
+
+  void main() {
+    // Animated dual-wave normal perturbation for mirror-like forest water ripples
+    float w1 = sin(vWorldPos.x * 1.45 + vWorldPos.z * 1.05 + uTime * 2.1);
+    float w2 = cos(vWorldPos.x * 2.2 - vWorldPos.z * 1.75 - uTime * 1.6);
+    float w3 = sin(vWorldPos.x * 4.5 + vWorldPos.z * 4.1 + uTime * 2.8) * 0.45;
+    vec3 normal = normalize(vec3((w1 + w3) * 0.11, 1.0, (w2 - w3) * 0.11));
+
+    vec3 viewDir = normalize(cameraPosition - vWorldPos);
+    float fresnel = pow(1.0 - max(dot(viewDir, normal), 0.0), 2.8);
+
+    // Center-to-bank depth gradient
+    float bankDist = abs(vUv.y - 0.5) * 2.0;
+    vec3 baseWater = mix(uDeepColor, uShallowColor, smoothstep(0.0, 0.85, bankDist));
+
+    // Mirror-like dark forest canopy & sunlit sky reflection (matching video 00:24 & 02:18)
+    float canopyMirror = fbmW(vWorldPos.xz * 0.36 + normal.xz * 0.85);
+    vec3 canopyReflectCol = mix(vec3(0.09, 0.20, 0.08), vec3(0.24, 0.42, 0.15), canopyMirror);
+    vec3 mirrorTarget = mix(canopyReflectCol, uSkyReflectColor, smoothstep(0.32, 0.74, canopyMirror + fresnel * 0.28));
+    vec3 reflCol = mix(baseWater, mirrorTarget, clamp(fresnel * 0.82 + 0.32, 0.0, 1.0));
+
+    // Solar specular glint on open water ripples
+    vec3 halfVec = normalize(normalize(uSunDir) + viewDir);
+    float spec = pow(max(dot(normal, halfVec), 0.0), 64.0);
+    reflCol += vec3(1.0, 0.98, 0.86) * spec * 0.85;
+
+    // Organic floating mats of bright chartreuse-green Duckweed & Surface Algae (matching video 00:22-00:31 & 01:45-02:41)
+    vec2 driftUv = vWorldPos.xz * 0.42 + vec2(uTime * 0.015, -uTime * 0.01);
+    float algaeFbm = fbmW(driftUv);
+    float algaeFine = noiseW(vWorldPos.xz * 3.8);
+    float bankAlgaeBias = smoothstep(0.08, 0.78, bankDist) * 0.34;
+    float duckweedMask = smoothstep(0.45, 0.60, algaeFbm + bankAlgaeBias + (algaeFine - 0.5) * 0.16);
+
+    vec3 duckweedBright = vec3(0.52, 0.74, 0.12); // Sunlit chartreuse duckweed (#85bd1f)
+    vec3 duckweedDeep = vec3(0.30, 0.50, 0.08);   // Shaded wet moss-algae (#4d8014)
+    vec3 duckweedCol = mix(duckweedDeep, duckweedBright, smoothstep(0.25, 0.8, algaeFine));
+    // Subtle stippled duckweed grain
+    duckweedCol *= 0.88 + 0.24 * hashW(floor(vWorldPos.xz * 24.0));
+
+    reflCol = mix(reflCol, duckweedCol, duckweedMask * 0.94);
+
+    float alpha = 1.0 - smoothstep(0.86, 1.0, bankDist);
+    gl_FragColor = vec4(reflCol, alpha * 0.95);
+  }
+`;
+
+function WeatheredWoodenFishingPier({
+  position,
+  rotationY = 0,
+  scale = 1,
+}: {
+  position: [number, number, number];
+  rotationY?: number;
+  scale?: number;
+}) {
+  const timberTex = useMemo(() => getTimberPlankTexture(), []);
+  return (
+    <group position={position} rotation={[0, rotationY, 0]} scale={scale}>
+      {/* Support Pilings Driven into Muddy Riverbed */}
+      {[-0.82, 0.82].map((px) =>
+        [-1.6, -0.5, 0.6, 1.7].map((pz) => (
+          <mesh key={`${px}_${pz}`} position={[px, 0.12, pz]} castShadow>
+            <cylinderGeometry args={[0.09, 0.11, 1.35, 7]} />
+            <meshStandardMaterial map={timberTex} color="#3d2c1e" roughness={0.92} />
+          </mesh>
+        )),
+      )}
+      {/* Longitudinal Stringer Beams */}
+      {[-0.72, 0.72].map((bx) => (
+        <mesh key={bx} position={[bx, 0.58, 0.05]}>
+          <boxGeometry args={[0.12, 0.14, 3.8]} />
+          <meshStandardMaterial map={timberTex} color="#523a26" roughness={0.88} />
+        </mesh>
+      ))}
+      {/* Weathered Individual Cross-Planks with Slight Gaps (matching video 02:18-02:38) */}
+      {Array.from({ length: 14 }).map((_, idx) => {
+        const pz = -1.7 + idx * 0.27;
+        const jitter = ((idx * 37) % 9) * 0.008;
+        return (
+          <mesh key={idx} position={[jitter, 0.68, pz]} receiveShadow castShadow>
+            <boxGeometry args={[1.88, 0.06, 0.21]} />
+            <meshStandardMaterial
+              map={timberTex}
+              color={idx % 3 === 0 ? '#6e5239' : idx % 2 === 0 ? '#7c5d41' : '#5e4530'}
+              roughness={0.88}
+            />
+          </mesh>
+        );
+      })}
+      {/* Left & Right Rustic Wooden Pier Handrails */}
+      {[-0.86, 0.86].map((rx) => (
+        <group key={rx} position={[rx, 1.08, 0]}>
+          <mesh position={[0, 0.15, 0]}>
+            <boxGeometry args={[0.07, 0.07, 3.6]} />
+            <meshStandardMaterial map={timberTex} color="#6b4f35" roughness={0.86} />
+          </mesh>
+          {[-1.55, 0, 1.55].map((pz) => (
+            <mesh key={pz} position={[0, -0.12, pz]}>
+              <boxGeometry args={[0.08, 0.62, 0.08]} />
+              <meshStandardMaterial map={timberTex} color="#59402a" roughness={0.9} />
+            </mesh>
+          ))}
+        </group>
+      ))}
+      {/* Weathered Wooden Angler Chair on the End of the Pier (matching video 02:22) */}
+      <group position={[-0.22, 0.71, 1.15]} rotation={[0, 0.28, 0]}>
+        <mesh position={[0, 0.24, 0]}>
+          <boxGeometry args={[0.48, 0.05, 0.46]} />
+          <meshStandardMaterial map={timberTex} color="#7a583b" roughness={0.85} />
+        </mesh>
+        <mesh position={[0, 0.54, -0.2]} rotation={[-0.12, 0, 0]}>
+          <boxGeometry args={[0.48, 0.56, 0.05]} />
+          <meshStandardMaterial map={timberTex} color="#6e4e32" roughness={0.86} />
+        </mesh>
+      </group>
+      {/* Angled Fishing Rod Leaned Over the Water */}
+      <mesh position={[0.35, 1.12, 1.65]} rotation={[0.92, 0.15, 0]}>
+        <cylinderGeometry args={[0.012, 0.028, 2.2, 6]} />
+        <meshStandardMaterial color="#cbd5e1" roughness={0.35} metalness={0.5} />
+      </mesh>
+    </group>
+  );
+}
+
 function RealisticRiverWaterSurface() {
   const waterMatRef = useRef<THREE.ShaderMaterial>(null);
+  const pondMatRef = useRef<THREE.ShaderMaterial>(null);
   const waterUniforms = useMemo(
     () => ({
       uTime: { value: 0 },
       uSunDir: { value: new THREE.Vector3(0.42, 0.36, -0.83).normalize() },
-      uDeepColor: { value: new THREE.Color('#134e63') },
-      uShallowColor: { value: new THREE.Color('#28849e') },
-      uSkyReflectColor: { value: new THREE.Color('#9bd0f2') },
+      uDeepColor: { value: new THREE.Color('#0c2824') },
+      uShallowColor: { value: new THREE.Color('#1c4d38') },
+      uSkyReflectColor: { value: new THREE.Color('#cfe4ee') },
     }),
     [],
   );
 
   useFrame((state) => {
+    const t = state.clock.elapsedTime;
     if (waterMatRef.current) {
-      waterMatRef.current.uniforms.uTime.value = state.clock.elapsedTime;
+      waterMatRef.current.uniforms.uTime.value = t;
+    }
+    if (pondMatRef.current) {
+      pondMatRef.current.uniforms.uTime.value = t;
     }
   });
 
+  // Floating 3D Water Lily Pads & White/Yellow Blossoms along the Pond & Riverbanks
+  const lilyPads = useMemo(
+    () => [
+      // Roadside Forest Duckweed Pond Lily Pads (visible right beside starting trail!)
+      { x: 6.2, y: -0.02, z: -10.8, r: 0.42, flower: '#fef08a' },
+      { x: 7.1, y: -0.02, z: -11.6, r: 0.36, flower: '#ffffff' },
+      { x: 5.5, y: -0.02, z: -12.4, r: 0.46, flower: null },
+      { x: 8.4, y: -0.02, z: -13.1, r: 0.38, flower: '#fef08a' },
+      { x: 6.8, y: -0.02, z: -14.2, r: 0.44, flower: '#ffffff' },
+      // Main River Dock Lily Pads
+      { x: 3.6, y: -0.21, z: -34.2, r: 0.48, flower: '#ffffff' },
+      { x: 4.5, y: -0.21, z: -34.9, r: 0.4, flower: '#fef08a' },
+      { x: 6.2, y: -0.21, z: -35.1, r: 0.44, flower: null },
+      { x: -4.2, y: -0.21, z: -35.4, r: 0.46, flower: '#ffffff' },
+      { x: -5.4, y: -0.21, z: -34.6, r: 0.38, flower: '#fef08a' },
+    ],
+    [],
+  );
+
   return (
-    <mesh position={[0, -0.24, -39.0]} rotation={[-Math.PI / 2, 0, 0]}>
-      <planeGeometry args={[460, 18, 96, 12]} />
-      <shaderMaterial
-        ref={waterMatRef}
-        transparent
-        uniforms={waterUniforms}
-        vertexShader={`
-          uniform float uTime;
-          varying vec3 vWorldPos;
-          varying vec2 vUv;
-          void main() {
-            vUv = uv;
-            vec3 pos = position;
-            // Gentle meandering curve matching riverCenterZ = -39.0 + sin(wx * 0.024) * 4.4
-            float curveOffset = sin(pos.x * 0.024) * 4.4;
-            pos.y += curveOffset;
-            float ripple = sin(pos.x * 0.45 + uTime * 2.1) * 0.04 + cos(pos.y * 0.8 - uTime * 1.7) * 0.03;
-            pos.z += ripple;
-            vec4 worldPosition = modelMatrix * vec4(pos, 1.0);
-            vWorldPos = worldPosition.xyz;
-            gl_Position = projectionMatrix * viewMatrix * worldPosition;
-          }
-        `}
-        fragmentShader={`
-          uniform float uTime;
-          uniform vec3 uSunDir;
-          uniform vec3 uDeepColor;
-          uniform vec3 uShallowColor;
-          uniform vec3 uSkyReflectColor;
-          varying vec3 vWorldPos;
-          varying vec2 vUv;
+    <group>
+      {/* 1. Main Meandering Forest River with Chartreuse Duckweed/Algae Mats & Mirror Canopy Reflections */}
+      <mesh position={[0, -0.24, -39.0]} rotation={[-Math.PI / 2, 0, 0]}>
+        <planeGeometry args={[460, 18, 96, 12]} />
+        <shaderMaterial
+          ref={waterMatRef}
+          transparent
+          uniforms={waterUniforms}
+          vertexShader={`
+            uniform float uTime;
+            varying vec3 vWorldPos;
+            varying vec2 vUv;
+            void main() {
+              vUv = uv;
+              vec3 pos = position;
+              float curveOffset = sin(pos.x * 0.024) * 4.4;
+              pos.y += curveOffset;
+              float ripple = sin(pos.x * 0.45 + uTime * 2.1) * 0.03 + cos(pos.y * 0.8 - uTime * 1.7) * 0.025;
+              pos.z += ripple;
+              vec4 worldPosition = modelMatrix * vec4(pos, 1.0);
+              vWorldPos = worldPosition.xyz;
+              gl_Position = projectionMatrix * viewMatrix * worldPosition;
+            }
+          `}
+          fragmentShader={DUCKWEED_WATER_FRAGMENT_SHADER}
+        />
+      </mesh>
 
-          void main() {
-            // Animated dual-wave normal perturbation for realistic water ripples
-            float w1 = sin(vWorldPos.x * 1.35 + vWorldPos.z * 0.95 + uTime * 2.4);
-            float w2 = cos(vWorldPos.x * 2.1 - vWorldPos.z * 1.65 - uTime * 1.9);
-            float w3 = sin(vWorldPos.x * 4.2 + vWorldPos.z * 3.8 + uTime * 3.2) * 0.5;
-            vec3 normal = normalize(vec3((w1 + w3) * 0.14, 1.0, (w2 - w3) * 0.14));
+      {/* 2. Foreground Roadside Forest Duckweed & Algae Pond (right alongside the starting trail at wx=7.2, wz=-12.2, matching video 00:22 & 02:18) */}
+      <mesh position={[7.4, -0.05, -12.2]} rotation={[-Math.PI / 2, 0, 0.18]}>
+        <planeGeometry args={[9.2, 7.6, 24, 20]} />
+        <shaderMaterial
+          ref={pondMatRef}
+          transparent
+          uniforms={waterUniforms}
+          vertexShader={`
+            uniform float uTime;
+            varying vec3 vWorldPos;
+            varying vec2 vUv;
+            void main() {
+              vUv = uv;
+              vec3 pos = position;
+              vec4 worldPosition = modelMatrix * vec4(pos, 1.0);
+              vWorldPos = worldPosition.xyz;
+              gl_Position = projectionMatrix * viewMatrix * worldPosition;
+            }
+          `}
+          fragmentShader={DUCKWEED_WATER_FRAGMENT_SHADER}
+        />
+      </mesh>
 
-            vec3 viewDir = normalize(cameraPosition - vWorldPos);
-            float fresnel = pow(1.0 - max(dot(viewDir, normal), 0.0), 3.0);
+      {/* 3. Weathered Wooden Fishing Pier at the Foreground Duckweed Pond & Main River */}
+      <WeatheredWoodenFishingPier position={[4.6, -0.42, -12.0]} rotationY={Math.PI * 0.46} scale={0.92} />
+      <WeatheredWoodenFishingPier position={[4.8, -0.58, -33.2]} rotationY={Math.PI} scale={1.08} />
 
-            // Center-to-bank depth gradient & shoreline foam
-            float bankDist = abs(vUv.y - 0.5) * 2.0;
-            vec3 baseWater = mix(uDeepColor, uShallowColor, smoothstep(0.0, 0.85, bankDist));
-            vec3 reflCol = mix(baseWater, uSkyReflectColor, clamp(fresnel * 0.78 + 0.15, 0.0, 1.0));
-
-            // Solar specular glint on water ripples
-            vec3 halfVec = normalize(normalize(uSunDir) + viewDir);
-            float spec = pow(max(dot(normal, halfVec), 0.0), 48.0);
-            reflCol += vec3(1.0, 0.97, 0.88) * spec * 0.65;
-
-            // Soft shoreline foam line
-            float foam = smoothstep(0.76, 0.95, bankDist + (w1 * 0.05));
-            reflCol = mix(reflCol, vec3(0.92, 0.96, 0.98), foam * 0.55);
-
-            float alpha = 1.0 - smoothstep(0.88, 1.0, bankDist);
-            gl_FragColor = vec4(reflCol, alpha * 0.90);
-          }
-        `}
-      />
-    </mesh>
+      {/* 4. Floating 3D Lily Pads & Water-Lily Flowers */}
+      {lilyPads.map((lp, idx) => (
+        <group key={idx} position={[lp.x, lp.y, lp.z]}>
+          <mesh rotation={[-Math.PI / 2, 0, idx * 1.1]}>
+            <circleGeometry args={[lp.r, 12, 0, Math.PI * 1.85]} />
+            <meshStandardMaterial color="#4b8319" roughness={0.65} side={THREE.DoubleSide} />
+          </mesh>
+          {lp.flower && (
+            <mesh position={[0, 0.04, 0]}>
+              <dodecahedronGeometry args={[0.09, 0]} />
+              <meshStandardMaterial color={lp.flower} roughness={0.4} />
+            </mesh>
+          )}
+        </group>
+      ))}
+    </group>
   );
 }
 
@@ -1701,6 +2019,132 @@ function createRealisticFernBushGeometry(): THREE.BufferGeometry {
   return geom;
 }
 
+function createRealisticGrassTuftGeometry(): THREE.BufferGeometry {
+  // Build a multi-stem patch of 16 fine, slender curved woodland grass blades with pointed tips
+  const blades: THREE.BufferGeometry[] = [];
+  const bladeCount = 16;
+  for (let b = 0; b < bladeCount; b++) {
+    const bladeH = 0.38 + ((b * 19) % 7) * 0.045;
+    const plane = new THREE.PlaneGeometry(0.058, bladeH, 1, 4);
+    const pos = plane.attributes.position as THREE.BufferAttribute;
+    const angle = ((b * 137.5) % 360) * (Math.PI / 180);
+    const patchRadius = ((b * 29) % 10) * 0.042;
+    const offX = Math.cos(b * 2.1) * patchRadius;
+    const offZ = Math.sin(b * 2.1) * patchRadius;
+    const lean = 0.09 + (b % 4) * 0.045;
+    const cosA = Math.cos(angle);
+    const sinA = Math.sin(angle);
+
+    for (let i = 0; i < pos.count; i++) {
+      const lx = pos.getX(i);
+      const ly = pos.getY(i) + bladeH * 0.5;
+      const hNorm = THREE.MathUtils.clamp(ly / bladeH, 0, 1);
+      // Taper slender blade to a needle-sharp tip
+      const taper = 1.0 - Math.pow(hNorm, 1.25) * 0.92;
+      const arch = Math.pow(hNorm, 1.85) * lean;
+      const tx = lx * taper;
+      const tz = arch;
+      const rx = offX + tx * cosA - tz * sinA;
+      const rz = offZ + tx * sinA + tz * cosA;
+      pos.setXYZ(i, rx, ly, rz);
+    }
+    plane.computeVertexNormals();
+    blades.push(plane);
+  }
+
+  let totalVerts = 0;
+  let totalIndices = 0;
+  for (const g of blades) {
+    totalVerts += g.attributes.position.count;
+    totalIndices += g.index ? g.index.count : 0;
+  }
+  const merged = new THREE.BufferGeometry();
+  const positions = new Float32Array(totalVerts * 3);
+  const normals = new Float32Array(totalVerts * 3);
+  const uvs = new Float32Array(totalVerts * 2);
+  const indices = new Uint16Array(totalIndices);
+
+  let vOffset = 0;
+  let iOffset = 0;
+  for (const g of blades) {
+    const pAttr = g.attributes.position as THREE.BufferAttribute;
+    const nAttr = g.attributes.normal as THREE.BufferAttribute;
+    const uAttr = g.attributes.uv as THREE.BufferAttribute;
+    positions.set(pAttr.array as Float32Array, vOffset * 3);
+    normals.set(nAttr.array as Float32Array, vOffset * 3);
+    if (uAttr) uvs.set(uAttr.array as Float32Array, vOffset * 2);
+    if (g.index) {
+      const idxArr = g.index.array;
+      for (let k = 0; k < idxArr.length; k++) {
+        indices[iOffset + k] = idxArr[k] + vOffset;
+      }
+      iOffset += idxArr.length;
+    }
+    vOffset += pAttr.count;
+  }
+  merged.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  merged.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
+  merged.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+  merged.setIndex(new THREE.BufferAttribute(indices, 1));
+  return merged;
+}
+
+const GRASS_MEADOW_VERTEX_SHADER = `
+  uniform float uTime;
+  varying vec3 vWorldPos;
+  varying float vHeightNorm;
+  varying vec3 vColor;
+
+  void main() {
+    #ifdef USE_INSTANCING_COLOR
+      vColor = instanceColor;
+    #else
+      vColor = vec3(0.32, 0.52, 0.14);
+    #endif
+    vHeightNorm = clamp(position.y / 0.65, 0.0, 1.0);
+
+    vec4 instWorld = modelMatrix * instanceMatrix * vec4(position, 1.0);
+    // Natural rolling meadow wind wave bending slender grass blades
+    float gust = sin(uTime * 2.2 + instWorld.x * 0.48 + instWorld.z * 0.36)
+               + cos(uTime * 1.5 - instWorld.x * 0.25 + instWorld.z * 0.52) * 0.6;
+    float bend = pow(vHeightNorm, 1.7) * 0.11;
+    instWorld.x += gust * bend;
+    instWorld.z += gust * 0.7 * bend;
+
+    vWorldPos = instWorld.xyz;
+    gl_Position = projectionMatrix * viewMatrix * instWorld;
+  }
+`;
+
+const GRASS_MEADOW_FRAGMENT_SHADER = `
+  uniform vec3 uSunDir;
+  uniform vec3 uFogColor;
+  uniform float uFogDensity;
+  varying vec3 vWorldPos;
+  varying float vHeightNorm;
+  varying vec3 vColor;
+
+  void main() {
+    vec3 viewDir = normalize(cameraPosition - vWorldPos);
+    vec3 L = normalize(uSunDir);
+
+    // Deep shaded root base transitioning to natural olive-emerald & sunlit chartreuse blade tips
+    vec3 rootCol = vColor * vec3(0.20, 0.28, 0.12);
+    vec3 tipCol = mix(vColor * 1.08, vec3(0.56, 0.74, 0.18), 0.38);
+    vec3 bladeCol = mix(rootCol, tipCol, smoothstep(0.08, 0.94, vHeightNorm));
+
+    // Subsurface sun-backlighting through translucent grass blades
+    float backLit = pow(max(dot(viewDir, -L), 0.0), 2.0) * 0.48 + 0.28;
+    bladeCol += vec3(0.38, 0.58, 0.12) * backLit * vHeightNorm * 0.34;
+
+    float dist = length(cameraPosition - vWorldPos);
+    float fogFactor = 1.0 - exp(-pow(dist * uFogDensity, 1.65));
+    bladeCol = mix(bladeCol, uFogColor, clamp(fogFactor, 0.0, 1.0));
+
+    gl_FragColor = vec4(bladeCol, 1.0);
+  }
+`;
+
 const REALISTIC_FOLIAGE_VERTEX_SHADER = `
   uniform float uTime;
   varying vec3 vWorldPos;
@@ -1722,8 +2166,8 @@ const REALISTIC_FOLIAGE_VERTEX_SHADER = `
     // Subtle organic wind sway on upper boughs & leaf tips
     float windPhase = uTime * 1.45 + instWorld.x * 0.32 + instWorld.z * 0.27;
     float heightFactor = clamp((position.y + 1.0) * 0.45, 0.0, 1.2);
-    instWorld.x += sin(windPhase) * 0.05 * heightFactor;
-    instWorld.z += cos(windPhase * 0.85) * 0.04 * heightFactor;
+    instWorld.x += sin(windPhase) * 0.06 * heightFactor;
+    instWorld.z += cos(windPhase * 0.85) * 0.05 * heightFactor;
 
     vWorldPos = instWorld.xyz;
     mat3 normalMat = mat3(modelMatrix) * mat3(instanceMatrix);
@@ -1749,7 +2193,7 @@ const REALISTIC_FOLIAGE_FRAGMENT_SHADER = `
 
   void main() {
     vec3 viewDir = normalize(cameraPosition - vWorldPos);
-    // High-frequency botanical leaf & pine-needle cluster scales (no large blotchy stripes)
+    // High-frequency botanical leaf & pine-needle cluster scales
     vec3 p1 = vWorldPos * 7.5 + vLocalPos * 2.5;
     vec3 p2 = vWorldPos * 19.5 + vec3(1.7, 3.1, 2.3);
     vec3 p3 = vWorldPos * 44.0;
@@ -1759,41 +2203,40 @@ const REALISTIC_FOLIAGE_FRAGMENT_SHADER = `
     float g3 = leafGyroid(p3);
     float clusterN = g1 * 0.42 + g2 * 0.36 + g3 * 0.22;
 
-    // Feathered lacy leaf/needle silhouette alpha cutout ONLY on silhouette edges & drooping bough skirts
-    // Keeps the interior of each crown dense and solid without hollow shell holes
+    // Lacy leaf/needle silhouette alpha cutout on outer edges & bough skirts (matching sunlit canopy in video 00:01-00:11)
     float rim = abs(dot(viewDir, normalize(vNormal)));
-    float edgeCutoutZone = smoothstep(0.08, 0.38, rim) * smoothstep(-1.18, -0.72, vLocalPos.y);
+    float edgeCutoutZone = smoothstep(0.10, 0.44, rim) * smoothstep(-1.18, -0.68, vLocalPos.y);
     float leafAlpha = mix(clusterN, 1.0, edgeCutoutZone);
-    if (leafAlpha < 0.46) discard;
+    if (leafAlpha < 0.47) discard;
 
     // Analytical high-frequency 3D leaf-cluster normal perturbation for crisp individual leaves/needles
     vec3 bumpGrad = (cos(p2) * cos(p2.yzx) - sin(p2.zxy) * sin(p2)) * 0.55
                   + (cos(p3) * cos(p3.yzx) - sin(p3.zxy) * sin(p3)) * 0.30;
-    vec3 N = normalize(vNormal + bumpGrad * 0.46);
+    vec3 N = normalize(vNormal + bumpGrad * 0.48);
 
     vec3 L = normalize(uSunDir);
     float NdotL = max(dot(N, L), 0.0);
 
     // Internal crown self-shadowing (ambient occlusion) + sunlit top leaf clusters
-    float crownAO = clamp(0.42 + (vLocalPos.y + 0.90) * 0.32 + (g1 - 0.35) * 0.38, 0.24, 1.12);
+    float crownAO = clamp(0.38 + (vLocalPos.y + 0.90) * 0.34 + (g1 - 0.35) * 0.40, 0.20, 1.15);
 
-    // Rich botanical chlorophyll palette: deep shaded pine interior -> vibrant sunlit leaf tips
-    vec3 deepShadowLeaf = vColor * vec3(0.32, 0.40, 0.26);
-    vec3 midLeaf = vColor * (0.84 + 0.32 * clusterN + (g3 - 0.5) * 0.22);
-    vec3 sunlitTip = mix(midLeaf, vec3(0.54, 0.72, 0.22), 0.38) * 1.24;
+    // Rich botanical chlorophyll palette: deep shaded forest interior -> vibrant golden-green sunlit leaf tips
+    vec3 deepShadowLeaf = vColor * vec3(0.26, 0.35, 0.20);
+    vec3 midLeaf = vColor * (0.86 + 0.34 * clusterN + (g3 - 0.5) * 0.22);
+    vec3 sunlitTip = mix(midLeaf, vec3(0.60, 0.82, 0.18), 0.46) * 1.28;
 
     vec3 baseFoliage = mix(deepShadowLeaf, midLeaf, crownAO);
-    baseFoliage = mix(baseFoliage, sunlitTip, smoothstep(0.28, 0.85, NdotL * (0.65 + clusterN * 0.75)));
+    baseFoliage = mix(baseFoliage, sunlitTip, smoothstep(0.24, 0.82, NdotL * (0.65 + clusterN * 0.75)));
 
-    // Warm golden-green subsurface scattering (SSS) translucency when backlit or side-lit by sun
-    float backScatter = pow(max(dot(viewDir, -L), 0.0), 2.4) * 0.42 + pow(NdotL, 1.6) * 0.18;
-    vec3 sssGlow = vec3(0.48, 0.72, 0.16) * backScatter * smoothstep(0.38, 0.82, g2);
+    // Strong golden-chartreuse subsurface scattering (SSS) translucency when backlit by sun (matching video 00:58)
+    float backScatter = pow(max(dot(viewDir, -L), 0.0), 2.1) * 0.56 + pow(NdotL, 1.5) * 0.24;
+    vec3 sssGlow = vec3(0.58, 0.86, 0.15) * backScatter * smoothstep(0.34, 0.80, g2);
 
     float hemi = 0.5 + 0.5 * N.y;
-    vec3 skyFill = mix(vec3(0.20, 0.27, 0.16), vec3(0.78, 0.88, 0.96), hemi) * 0.48;
-    vec3 sunLight = vec3(1.0, 0.96, 0.86) * (0.30 + NdotL * 0.76);
+    vec3 skyFill = mix(vec3(0.18, 0.25, 0.14), vec3(0.78, 0.88, 0.96), hemi) * 0.48;
+    vec3 sunLight = vec3(1.0, 0.96, 0.84) * (0.30 + NdotL * 0.78);
 
-    vec3 finalCol = baseFoliage * (skyFill + sunLight) * crownAO + sssGlow * 0.38;
+    vec3 finalCol = baseFoliage * (skyFill + sunLight) * crownAO + sssGlow * 0.46;
 
     // Exponential horizon mist matching the ground terrain shader
     float dist = length(cameraPosition - vWorldPos);
@@ -1819,6 +2262,7 @@ function OpenWorldPlanetGroundScene({
   const pineBoughGeom = useMemo(() => createRealisticPineBoughGeometry(), []);
   const broadleafCloudGeom = useMemo(() => createRealisticBroadleafCloudGeometry(), []);
   const fernBushGeom = useMemo(() => createRealisticFernBushGeometry(), []);
+  const grassTuftGeom = useMemo(() => createRealisticGrassTuftGeometry(), []);
 
   const pineInstRef = useRef<THREE.InstancedMesh>(null);
   const pineMidInstRef = useRef<THREE.InstancedMesh>(null);
@@ -1826,6 +2270,7 @@ function OpenWorldPlanetGroundScene({
   const trunkInstRef = useRef<THREE.InstancedMesh>(null);
   const oakInstRef = useRef<THREE.InstancedMesh>(null);
   const fernInstRef = useRef<THREE.InstancedMesh>(null);
+  const grassInstRef = useRef<THREE.InstancedMesh>(null);
   const rockInstRef = useRef<THREE.InstancedMesh>(null);
   const poleInstRef = useRef<THREE.InstancedMesh>(null);
 
@@ -1877,7 +2322,7 @@ function OpenWorldPlanetGroundScene({
     return geom;
   }, []);
 
-  // Generate dense, multi-layered realistic woodland: 3-tier Douglas firs/pines, multi-lobe broadleaf oaks/maples, understory ferns/shrubs, furrowed bark trunks & mossy boulders
+  // Generate dense, multi-layered realistic woodland: 3-tier Douglas firs/pines, multi-lobe broadleaf oaks/maples, understory ferns/shrubs, wind-swaying 3D tall grass tufts & mossy boulders
   const envInstances = useMemo(() => {
     const pines: Array<{
       lowerMatrix: THREE.Matrix4;
@@ -1888,6 +2333,7 @@ function OpenWorldPlanetGroundScene({
     const trunks: Array<{ matrix: THREE.Matrix4 }> = [];
     const oaks: Array<{ matrix: THREE.Matrix4; color: THREE.Color }> = [];
     const ferns: Array<{ matrix: THREE.Matrix4; color: THREE.Color }> = [];
+    const grasses: Array<{ matrix: THREE.Matrix4; color: THREE.Color }> = [];
     const rocks: Array<{ matrix: THREE.Matrix4; color: THREE.Color }> = [];
     const poles: Array<{ matrix: THREE.Matrix4 }> = [];
 
@@ -1909,6 +2355,13 @@ function OpenWorldPlanetGroundScene({
       new THREE.Color('#3b6922'),
       new THREE.Color('#4a7c29'),
       new THREE.Color('#2e5718'),
+    ];
+    const grassColors = [
+      new THREE.Color('#48781e'),
+      new THREE.Color('#5b8e24'),
+      new THREE.Color('#3c6818'),
+      new THREE.Color('#6ea126'),
+      new THREE.Color('#7ca329'),
     ];
     const rockColors = [
       new THREE.Color('#576558'),
@@ -1934,6 +2387,8 @@ function OpenWorldPlanetGroundScene({
     const isClearForForest = (rx: number, rz: number, minRoadClearance: number): boolean => {
       const mainRoadCenterX = Math.sin(rz * 0.015) * 1.85;
       if (Math.abs(rx - mainRoadCenterX) < minRoadClearance) return false;
+      // Keep foreground duckweed pond clear of trees
+      if (Math.hypot(rx - 7.4, rz + 12.2) < 5.2) return false;
 
       for (const lm of PLANET_LANDMARKS) {
         const { wx: lx, wz: lz } = latLonToOpenWorldXZ(lm.lat, lm.lon);
@@ -1947,13 +2402,57 @@ function OpenWorldPlanetGroundScene({
       return true;
     };
 
+    // 1B. Dense Wind-Swaying 3D Tall Meadow Grass, Wildflowers & Riverbank Reeds (900 instances blanketing trail edges, pond banks, and clearings like video 00:35-01:10)
+    for (let g = 0; g < 900; g++) {
+      let gx: number;
+      let gz: number;
+      if (g < 560) {
+        // Dense overgrown grass corridor hugging both sides of the main dirt trail & foreground pond
+        const side = g % 2 === 0 ? -1 : 1;
+        const offsetFromTrail = 2.05 + ((g * 17) % 140) * 0.12 + Math.sin(g * 1.9) * 0.45;
+        gz = -68 + ((g * 13) % 92) + Math.cos(g * 2.3) * 1.4;
+        const mainRoadCenterX = Math.sin(gz * 0.015) * 1.85;
+        gx = mainRoadCenterX + side * offsetFromTrail;
+      } else {
+        // Riverbank & clearing meadow patches
+        gx = (((g * 73) % 160) - 80) + Math.sin(g * 1.3) * 2.2;
+        gz = (((g * 41) % 140) - 85) + Math.cos(g * 1.7) * 2.2;
+      }
+
+      // Keep the center wheel ruts of the dirt trail open, and keep the middle of the pond open
+      const mainRoadCenterX = Math.sin(gz * 0.015) * 1.85;
+      if (Math.abs(gx - mainRoadCenterX) < 1.85) continue;
+      const pondDist = Math.hypot(gx - 7.4, gz + 12.2);
+      if (pondDist < 3.4) continue;
+
+      const gev = evaluateOpenWorldTerrain(gx, gz);
+      if (gev.riverMask > 0.35) continue;
+
+      // Taller reeds/cattails near pond & river banks
+      const isBankReed = pondDist < 5.2 || (gev.riverMask > 0.02 && gev.riverMask <= 0.35);
+      const gScaleXZ = isBankReed ? 1.15 + (g % 4) * 0.15 : 0.92 + (g % 5) * 0.16;
+      const gScaleY = isBankReed ? 1.45 + (g % 4) * 0.24 : 0.78 + (g % 6) * 0.18;
+      const gYaw = ((g * 67) % 360) * (Math.PI / 180);
+      const gQuat = new THREE.Quaternion().setFromEuler(
+        new THREE.Euler(Math.sin(g) * 0.06, gYaw, Math.cos(g) * 0.06),
+      );
+      grasses.push({
+        matrix: new THREE.Matrix4().compose(
+          new THREE.Vector3(gx, gev.height - 0.04, gz),
+          gQuat,
+          new THREE.Vector3(gScaleXZ, gScaleY, gScaleXZ),
+        ),
+        color: grassColors[g % grassColors.length],
+      });
+    }
+
     // 2. Dense Foreground & Midground Woodland Groves + Hillside Forests (480 mature trees)
     for (let i = 0; i < 480; i++) {
       let rx: number;
       let rz: number;
       if (i < 220) {
         const side = i % 2 === 0 ? -1 : 1;
-        const bandOffset = 6.8 + ((i * 23) % 68) + Math.sin(i * 3.1) * 2.5;
+        const bandOffset = 6.4 + ((i * 23) % 68) + Math.sin(i * 3.1) * 2.5;
         rz = -95 + ((i * 19) % 140) + Math.cos(i * 2.7) * 3.0;
         const mainRoadCenterX = Math.sin(rz * 0.015) * 1.85;
         rx = mainRoadCenterX + side * bandOffset;
@@ -1962,7 +2461,7 @@ function OpenWorldPlanetGroundScene({
         rz = (((i * 53) % 400) - 200) + Math.cos(i * 2.3) * 5.5;
       }
 
-      if (!isClearForForest(rx, rz, 6.4)) continue;
+      if (!isClearForForest(rx, rz, 6.0)) continue;
       const ev = evaluateOpenWorldTerrain(rx, rz);
 
       const scale = 1.35 + ((i * 19) % 12) * 0.18;
@@ -2072,7 +2571,7 @@ function OpenWorldPlanetGroundScene({
       if (i % 2 === 0) {
         const fx = rx + Math.cos(yaw) * 1.45;
         const fz = rz + Math.sin(yaw) * 1.45;
-        if (isClearForForest(fx, fz, 5.2)) {
+        if (isClearForForest(fx, fz, 4.8)) {
           const fev = evaluateOpenWorldTerrain(fx, fz);
           const fScale = 0.65 + (i % 5) * 0.14;
           ferns.push({
@@ -2087,7 +2586,7 @@ function OpenWorldPlanetGroundScene({
       }
     }
 
-    return { pines, trunks, oaks, ferns, rocks, poles };
+    return { pines, trunks, oaks, ferns, grasses, rocks, poles };
   }, []);
 
   useEffect(() => {
@@ -2131,6 +2630,14 @@ function OpenWorldPlanetGroundScene({
       fernInstRef.current.instanceMatrix.needsUpdate = true;
       if (fernInstRef.current.instanceColor) fernInstRef.current.instanceColor.needsUpdate = true;
     }
+    if (grassInstRef.current) {
+      envInstances.grasses.forEach((gr, idx) => {
+        grassInstRef.current?.setMatrixAt(idx, gr.matrix);
+        grassInstRef.current?.setColorAt(idx, gr.color);
+      });
+      grassInstRef.current.instanceMatrix.needsUpdate = true;
+      if (grassInstRef.current.instanceColor) grassInstRef.current.instanceColor.needsUpdate = true;
+    }
     if (rockInstRef.current) {
       envInstances.rocks.forEach((rk, idx) => {
         rockInstRef.current?.setMatrixAt(idx, rk.matrix);
@@ -2152,7 +2659,7 @@ function OpenWorldPlanetGroundScene({
       {/* Realistic Daytime Sky Dome with Rayleigh Scattering, Solar Halo & 3D-Lit Cumulus Clouds */}
       <DaytimeSkyDomeWithClouds radius={310} />
 
-      {/* Wide Open-World Free Fire Bermuda Terrain with Custom GLSL Multi-Octave FBM Biome Shader & Dappled Forest Floor Humus */}
+      {/* Wide Open-World Forest Terrain with Custom GLSL Multi-Octave FBM Shader, Fallen Autumn/Oak Leaf Litter & Wet Wheel-Rut Puddles */}
       <mesh geometry={terrainGeometry} receiveShadow>
         <shaderMaterial
           uniforms={terrainShaderUniforms}
@@ -2208,36 +2715,44 @@ function OpenWorldPlanetGroundScene({
               float macroN = fbm(xz * 0.08);
               float midN = fbm(xz * 0.55);
               float microN = fbm(xz * 3.8);
-              float fineGrit = noise2(xz * 18.0) - 0.5;
+              float leafCellN = noise2(xz * 9.5);
+              float fineGrit = noise2(xz * 22.0) - 0.5;
 
               // Noisy organic road edge mask & dual wheel-track ruts
               float roadDist = vMasks.z * 12.0 + (midN - 0.5) * 0.85;
-              float roadMask = 1.0 - smoothstep(2.0, 4.3, roadDist);
-              float shoulderMask = (1.0 - smoothstep(3.2, 6.2, roadDist)) * (1.0 - roadMask);
-              float wheelTrack = exp(-pow((abs(roadDist - 1.15)) * 2.1, 2.0)) * roadMask;
+              float roadMask = 1.0 - smoothstep(1.95, 4.15, roadDist);
+              float shoulderMask = (1.0 - smoothstep(2.8, 5.8, roadDist)) * (1.0 - roadMask);
+              float wheelTrack = exp(-pow((abs(roadDist - 1.12)) * 2.2, 2.0)) * roadMask;
 
-              // 1. Realistic Compacted Sandy-Ochre Dirt Road with Wheel Tracks & Pebble Grit
-              vec3 dirtBase = mix(vec3(0.56, 0.50, 0.37), vec3(0.68, 0.61, 0.46), midN);
-              dirtBase -= vec3(0.08, 0.07, 0.06) * wheelTrack;
+              // 1. Damp Woodland Loam Dirt Trail with Wheel Tracks, Fallen Oak Leaf Litter & Wet Puddles (matching video 00:35-01:10)
+              vec3 dirtBase = mix(vec3(0.42, 0.34, 0.24), vec3(0.55, 0.46, 0.33), midN);
+              dirtBase -= vec3(0.09, 0.08, 0.06) * wheelTrack;
               dirtBase += fineGrit * 0.055 + (microN - 0.5) * 0.06;
 
-              // 2. Lush Olive-Green Meadows, Deep Woodland Humus & Dappled Forest Moss
-              vec3 oliveGrass = vec3(0.33, 0.44, 0.19);
-              vec3 emeraldMoss = vec3(0.20, 0.35, 0.12);
-              vec3 forestHumus = vec3(0.24, 0.21, 0.14);
+              // Scattered Fallen Autumn/Oak Leaf Litter across trail shoulders & forest floor (#8f5924 / #6e4118)
+              float leafScatterZone = clamp(shoulderMask * 1.15 + roadMask * 0.55 + smoothstep(4.5, 12.0, roadDist) * 0.75, 0.0, 1.0);
+              float leafClumpMask = smoothstep(0.54, 0.72, leafCellN * 0.65 + microN * 0.35) * leafScatterZone;
+              vec3 dryOakLeaf = mix(vec3(0.48, 0.28, 0.12), vec3(0.66, 0.42, 0.18), hash2(floor(xz * 14.0)));
+              dirtBase = mix(dirtBase, dryOakLeaf, leafClumpMask * 0.68);
+
+              // 2. Lush Olive-Emerald Forest Floor, Damp Woodland Moss & Pine-Needle Humus
+              vec3 oliveGrass = vec3(0.30, 0.46, 0.16);
+              vec3 emeraldMoss = vec3(0.18, 0.34, 0.10);
+              vec3 forestHumus = vec3(0.22, 0.18, 0.11);
               vec3 grassCol = mix(emeraldMoss, oliveGrass, smoothstep(0.25, 0.75, macroN));
 
-              // Under the forest canopy (roadDist > 6.5), blend pine-needle humus & dappled canopy shade
-              float forestZone = smoothstep(5.8, 11.0, roadDist);
-              float humusPatch = smoothstep(0.48, 0.78, midN) * forestZone;
-              grassCol = mix(grassCol, forestHumus, humusPatch * 0.52);
-              float dappledCanopyShadow = 1.0 - smoothstep(0.42, 0.72, fbm(xz * 0.38)) * forestZone * 0.38;
+              float forestZone = smoothstep(5.2, 10.5, roadDist);
+              float humusPatch = smoothstep(0.45, 0.76, midN) * forestZone;
+              grassCol = mix(grassCol, forestHumus, humusPatch * 0.54);
+              grassCol = mix(grassCol, dryOakLeaf, leafClumpMask * 0.52);
+
+              float dappledCanopyShadow = 1.0 - smoothstep(0.40, 0.70, fbm(xz * 0.38)) * forestZone * 0.42;
               grassCol *= dappledCanopyShadow;
               grassCol += (microN - 0.5) * 0.055 + fineGrit * 0.035;
 
-              // Blend gravelly roadside shoulder
-              vec3 gravelShoulder = vec3(0.50, 0.46, 0.34) + fineGrit * 0.06;
-              grassCol = mix(grassCol, gravelShoulder, shoulderMask * 0.65);
+              // Blend gravelly leaf-strewn roadside shoulder
+              vec3 gravelShoulder = mix(vec3(0.44, 0.38, 0.27), dryOakLeaf, 0.38) + fineGrit * 0.05;
+              grassCol = mix(grassCol, gravelShoulder, shoulderMask * 0.72);
 
               // 3. Stratified Limestone & Slate Rock on Steep Slopes & High Peak Ridges
               float slope = 1.0 - clamp(vNormal.y, 0.0, 1.0);
@@ -2248,25 +2763,34 @@ function OpenWorldPlanetGroundScene({
 
               vec3 surfaceCol = mix(grassCol, dirtBase, roadMask);
 
-              // Riverbed wet sand tint near river channel
+              // Wet wheel-rut mud puddles reflecting sky along the trail
+              float puddleMask = wheelTrack * smoothstep(0.58, 0.74, midN);
+              vec3 viewDir = normalize(cameraPosition - vWorldPos);
+              surfaceCol = mix(surfaceCol, vec3(0.38, 0.48, 0.52), puddleMask * 0.58);
+
+              // Riverbed wet mossy mud tint near river channel
               if (vMasks.y > 0.01) {
-                surfaceCol = mix(surfaceCol, vec3(0.20, 0.36, 0.40), vMasks.y);
+                surfaceCol = mix(surfaceCol, vec3(0.18, 0.32, 0.24), vMasks.y);
               }
 
-              // Procedural Per-Pixel Micro-Bump Normal Perturbation (Earth-in-Orbit style surface relief)
+              // Procedural Per-Pixel Micro-Bump Normal Perturbation
               float hL = fbm((xz + vec2(0.12, 0.0)) * 3.8);
               float hF = fbm((xz + vec2(0.0, 0.12)) * 3.8);
-              vec3 bumpOffset = vec3((microN - hL) * 0.65, 0.0, (microN - hF) * 0.65);
-              vec3 N = normalize(vNormal + bumpOffset);
+              vec3 bumpOffset = vec3((microN - hL) * 0.68, 0.0, (microN - hF) * 0.68);
+              vec3 N = normalize(vNormal + bumpOffset * (1.0 - puddleMask * 0.85));
 
               // Realistic Directional Sunlight + Sky Hemisphere Fill Lighting
               vec3 L = normalize(uSunDir);
               float NdotL = max(dot(N, L), 0.0);
               float hemi = 0.5 + 0.5 * N.y;
-              vec3 skyLight = mix(vec3(0.26, 0.33, 0.20), vec3(0.84, 0.91, 0.98), hemi);
-              vec3 lighting = skyLight * 0.52 + vec3(1.0, 0.96, 0.88) * NdotL * 0.68;
+              vec3 skyLight = mix(vec3(0.24, 0.32, 0.18), vec3(0.84, 0.91, 0.98), hemi);
+              vec3 lighting = skyLight * 0.52 + vec3(1.0, 0.96, 0.86) * NdotL * 0.70;
 
-              vec3 finalCol = surfaceCol * lighting;
+              // Specular glint on wet mud puddles
+              vec3 halfVec = normalize(L + viewDir);
+              float wetSpec = pow(max(dot(N, halfVec), 0.0), 48.0) * puddleMask * 0.55;
+
+              vec3 finalCol = surfaceCol * lighting + vec3(1.0, 0.97, 0.88) * wetSpec;
 
               // Exponential Horizon Mist / Aerial Perspective
               float dist = length(cameraPosition - vWorldPos);
@@ -2279,10 +2803,54 @@ function OpenWorldPlanetGroundScene({
         />
       </mesh>
 
-      {/* Realistic Animated GLSL Bermuda River Water Surface with Fresnel Reflection & Ripples */}
+      {/* Realistic Animated GLSL Duckweed/Algae River, Roadside Pond & Weathered Wooden Fishing Pier */}
       <RealisticRiverWaterSurface />
 
-      {/* Free Fire Bermuda Structural Compounds (2-Story Cyan Houses, Wood Cabins, Warehouses, Watchtowers, Bridges) */}
+      {/* Fallen Mossy Hollow Logs & Red-Capped Forest Mushrooms along the Foreground Trail & Pond Bank (matching video 00:38, 00:52, 01:36, 02:02) */}
+      {[
+        { x: -3.85, z: -8.6, yaw: 1.42, len: 2.9 },
+        { x: 3.4, z: -17.2, yaw: -1.35, len: 2.6 },
+        { x: -4.4, z: -26.5, yaw: 1.48, len: 3.2 },
+      ].map((log, lIdx) => {
+        const lev = evaluateOpenWorldTerrain(log.x, log.z);
+        return (
+          <group
+            key={`fallen_log_${lIdx}`}
+            position={[log.x, lev.height + 0.11, log.z]}
+            rotation={[0, log.yaw, 0]}
+          >
+            {/* Fallen Furrowed Bark Trunk */}
+            <mesh rotation={[0, 0, Math.PI / 2]} castShadow receiveShadow>
+              <cylinderGeometry args={[0.18, 0.23, log.len, 10]} />
+              <meshStandardMaterial map={barkTexture} color="#46301d" roughness={0.94} />
+            </mesh>
+            {/* Lush Green Woodland Moss Blanket along Top of Fallen Log */}
+            <mesh position={[0, 0.16, 0]} rotation={[0, 0, Math.PI / 2]}>
+              <cylinderGeometry args={[0.11, 0.13, log.len * 0.84, 8]} />
+              <meshStandardMaterial color="#365e18" roughness={0.9} />
+            </mesh>
+            {/* Cluster of Small Forest Mushrooms nestled into the damp moss beside the Log */}
+            {[-0.55, -0.28, 0.42].map((mx, mIdx) => (
+              <group
+                key={mIdx}
+                position={[mx, -0.04, 0.25 + (mIdx % 2) * 0.09]}
+                scale={0.62 + mIdx * 0.12}
+              >
+                <mesh position={[0, 0.07, 0]}>
+                  <cylinderGeometry args={[0.024, 0.032, 0.14, 7]} />
+                  <meshStandardMaterial color="#e7e5d0" roughness={0.8} />
+                </mesh>
+                <mesh position={[0, 0.14, 0]}>
+                  <sphereGeometry args={[0.085, 9, 7, 0, Math.PI * 2, 0, Math.PI * 0.56]} />
+                  <meshStandardMaterial color="#b92b1e" roughness={0.6} />
+                </mesh>
+              </group>
+            ))}
+          </group>
+        );
+      })}
+
+      {/* Free Fire Bermuda Structural Compounds (2-Story Cyan Houses, Wood Cabins, Warehouses, Fire Lookout Watchtowers, Bridges) */}
       {BERMUDA_STRUCTURES.map((spec) => (
         <FFBermudaStructureMesh key={spec.id} spec={spec} />
       ))}
@@ -2403,6 +2971,22 @@ function OpenWorldPlanetGroundScene({
         </instancedMesh>
       )}
 
+      {/* Instanced Wind-Swaying 3D Tall Meadow Grass, Wildflowers & Riverbank Reeds (900 tufts) */}
+      {envInstances.grasses.length > 0 && (
+        <instancedMesh
+          ref={grassInstRef}
+          args={[grassTuftGeom, undefined, envInstances.grasses.length]}
+          frustumCulled={false}
+        >
+          <shaderMaterial
+            side={THREE.DoubleSide}
+            uniforms={foliageShaderUniforms}
+            vertexShader={GRASS_MEADOW_VERTEX_SHADER}
+            fragmentShader={GRASS_MEADOW_FRAGMENT_SHADER}
+          />
+        </instancedMesh>
+      )}
+
       {/* 8 Sovereign Squares Integrated Along the Free Fire Bermuda Road Network */}
       {PLANET_LANDMARKS.map((landmark) => {
         const { wx, wz } = latLonToOpenWorldXZ(landmark.lat, landmark.lon);
@@ -2509,17 +3093,22 @@ function HorseAndRiderNavigator({
   riderStateRef,
   keysRef,
   uiSteerRef,
+  whinnyTimeRef,
   autopilotTarget,
   onClearAutopilot,
   onReachLandmark,
   onTelemetryUpdate,
   cameraMode,
   customModel,
+  playerStance = 'stand',
+  isMountedOnHorse = true,
+  showBoyRiderOnHorse = false,
 }: {
   seedOffset: number;
   riderStateRef: React.MutableRefObject<SphericalRiderState>;
   keysRef: React.MutableRefObject<Record<string, boolean>>;
   uiSteerRef: React.MutableRefObject<{ forward: number; turn: number; gallop: boolean; jump: boolean }>;
+  whinnyTimeRef: React.MutableRefObject<number>;
   autopilotTarget: PlanetLandmarkSpot | null;
   onClearAutopilot: () => void;
   onReachLandmark: (lm: PlanetLandmarkSpot | null) => void;
@@ -2532,17 +3121,24 @@ function HorseAndRiderNavigator({
   }) => void;
   cameraMode: 'chase' | 'globe';
   customModel: LoadedCustom3DModel | null;
+  playerStance?: 'stand' | 'crouch' | 'prone';
+  isMountedOnHorse?: boolean;
+  showBoyRiderOnHorse?: boolean;
 }) {
   const rootGroupRef = useRef<THREE.Group>(null);
   const horseBodyPivotRef = useRef<THREE.Group>(null);
-  const neckPivotRef = useRef<THREE.Group>(null);
-  const tailPivotRef = useRef<THREE.Group>(null);
-  const flLegRef = useRef<THREE.Group>(null);
-  const frLegRef = useRef<THREE.Group>(null);
-  const blLegRef = useRef<THREE.Group>(null);
-  const brLegRef = useRef<THREE.Group>(null);
   const riderTorsoRef = useRef<THREE.Group>(null);
   const mixerRef = useRef<THREE.AnimationMixer | null>(null);
+  const boyGaitPhaseRef = useRef(0);
+  const boyMoveFactorRef = useRef(0);
+  const horseAnimRef = useRef<HorseAnimRefs>({
+    gaitPhase: 0,
+    moveFactor: 0,
+    gallopBlend: 0,
+    whinnyIntensity: 0,
+    jumpArc: 0,
+    rearAngleRad: 0,
+  });
 
   useEffect(() => {
     if (!customModel || customModel.animations.length === 0) {
@@ -2617,12 +3213,27 @@ function HorseAndRiderNavigator({
       }
     }
 
+    // Scale forward speed according to whether the boy is mounted on the horse vs roaming on foot (walk, sprint, crouch-walk, or prone-crawl)
+    const stanceSpeedMult = isMountedOnHorse
+      ? 1.15
+      : playerStance === 'prone'
+        ? 0.36
+        : playerStance === 'crouch'
+          ? 0.56
+          : gallopInput
+            ? 0.96
+            : 0.8;
+
+    const effectiveGallop = isMountedOnHorse
+      ? gallopInput
+      : playerStance === 'stand' && gallopInput;
+
     const stepped = stepSphericalRider(
       riderStateRef.current,
       {
-        forward: forwardInput,
+        forward: forwardInput * stanceSpeedMult,
         turn: turnInput,
-        gallop: gallopInput,
+        gallop: effectiveGallop,
         jump: jumpInput,
       },
       delta,
@@ -2651,13 +3262,14 @@ function HorseAndRiderNavigator({
         rootGroupRef.current.quaternion.slerp(targetQuat, 1 - Math.exp(-16 * delta));
       }
 
-      // Wide eye-level open-world ground camera looking down the broad dirt highway toward the distant horizon
-      const camBackDist = 4.5;
-      const camUpHeight = 1.84;
+      // Wide eye-level open-world ground camera with subtle 3/4 side offset when viewing the Horse so all 4 legs, neck, tail & rearing whinny are clearly visible
+      const camBackDist = isMountedOnHorse ? 4.35 : 4.5;
+      const camUpHeight = isMountedOnHorse ? 1.78 : 1.84;
+      const camSideOffset = isMountedOnHorse ? 1.25 : 0.0;
       desiredCamVec.set(
-        wx - fx * camBackDist,
+        wx - fx * camBackDist + vecRight.x * camSideOffset,
         wy + camUpHeight,
-        wz - fz * camBackDist,
+        wz - fz * camBackDist + vecRight.z * camSideOffset,
       );
       const camGroundY = evaluateOpenWorldTerrain(desiredCamVec.x, desiredCamVec.z).height;
       if (desiredCamVec.y < camGroundY + 1.2) {
@@ -2665,9 +3277,9 @@ function HorseAndRiderNavigator({
       }
 
       desiredLookVec.set(
-        wx + fx * 18.0,
-        wy + 1.42,
-        wz + fz * 18.0,
+        wx + fx * 14.0,
+        wy + 1.32,
+        wz + fz * 14.0,
       );
 
       const damp = 1 - Math.exp(-8.5 * delta);
@@ -2697,44 +3309,48 @@ function HorseAndRiderNavigator({
       }
     }
 
-    // Animate 4-beat Horse Gallop / Trot & Rider Posture
+    // Advance Whinny timer if active
+    if (whinnyTimeRef.current > 0) {
+      whinnyTimeRef.current = Math.max(0, whinnyTimeRef.current - delta);
+    }
+
+    // Compute Equine Biomechanics (Natural 4-Beat Walk, 4-Beat Gallop, Rearing Whinny, and Bascule Jump)
     const speedAbs = Math.abs(stepped.nextState.speed);
-    const moveFactor = THREE.MathUtils.clamp(speedAbs / 8.0, 0, 1.35);
     const phase = stepped.nextState.gaitPhase * 5.2;
-    const idleBreath = Math.sin(state.clock.elapsedTime * 2.4) * 0.02;
+    const equine = computeEquineBiomechanics({
+      speedAbs,
+      gallop: effectiveGallop,
+      gaitPhase: phase,
+      jumpOffset: stepped.nextState.jumpOffset,
+      jumpVel: stepped.nextState.jumpVel,
+      whinnyTimeRemaining: whinnyTimeRef.current,
+      whinnyDuration: 1.85,
+    });
 
-    if (horseBodyPivotRef.current) {
-      const pitchRock = Math.sin(phase) * 0.08 * moveFactor;
-      const rearPitch = stepped.nextState.jumpOffset > 0.05 ? -0.28 : 0;
-      horseBodyPivotRef.current.rotation.x = pitchRock + rearPitch;
-      horseBodyPivotRef.current.position.y =
-        Math.abs(Math.cos(phase)) * 0.09 * moveFactor + idleBreath;
-    }
+    boyGaitPhaseRef.current = phase;
+    boyMoveFactorRef.current = equine.moveFactor;
 
-    if (neckPivotRef.current) {
-      neckPivotRef.current.rotation.x = 0.42 + Math.sin(phase - 0.6) * 0.09 * moveFactor;
-    }
-
-    if (tailPivotRef.current) {
-      tailPivotRef.current.rotation.x = -0.45 - moveFactor * 0.35 + Math.sin(phase * 1.5) * 0.12;
-      tailPivotRef.current.rotation.z = Math.cos(phase * 0.8) * 0.14;
-    }
-
-    if (flLegRef.current && frLegRef.current && blLegRef.current && brLegRef.current) {
-      const swingAmp = 0.62 * moveFactor;
-      flLegRef.current.rotation.x = Math.sin(phase) * swingAmp;
-      brLegRef.current.rotation.x = Math.sin(phase + 0.5) * swingAmp;
-      frLegRef.current.rotation.x = Math.sin(phase + Math.PI) * swingAmp;
-      blLegRef.current.rotation.x = Math.sin(phase + Math.PI + 0.5) * swingAmp;
-    }
+    horseAnimRef.current.gaitPhase = phase;
+    horseAnimRef.current.moveFactor = equine.moveFactor;
+    horseAnimRef.current.gallopBlend = equine.gallopBlend;
+    horseAnimRef.current.whinnyIntensity = equine.whinnyIntensity;
+    horseAnimRef.current.jumpArc = equine.jumpArc;
+    horseAnimRef.current.rearAngleRad = equine.rearAngleRad;
+    horseAnimRef.current.jumpOffset = stepped.nextState.jumpOffset;
 
     if (riderTorsoRef.current) {
-      riderTorsoRef.current.rotation.x =
-        0.08 + moveFactor * 0.14 + Math.sin(phase) * 0.05 * moveFactor;
+      // Keep the mounted Boy locked onto the horse's saddle during walk, gallop, whinny rearing, and jumping
+      const horseScale = 1.18;
+      riderTorsoRef.current.position.set(
+        0,
+        equine.saddleHeightY * horseScale,
+        -0.18 * horseScale,
+      );
+      riderTorsoRef.current.rotation.x = equine.saddlePitchRad;
     }
 
     if (mixerRef.current) {
-      mixerRef.current.timeScale = speedAbs > 0.2 ? Math.max(0.6, moveFactor * 1.35) : 0.35;
+      mixerRef.current.timeScale = speedAbs > 0.2 ? Math.max(0.6, equine.moveFactor * 1.35) : 0.35;
       mixerRef.current.update(delta);
     }
 
@@ -2829,192 +3445,41 @@ function HorseAndRiderNavigator({
           >
             <primitive object={customModel.object} />
           </group>
+        ) : !isMountedOnHorse ? (
+          /* ==================== ON FOOT: USER'S 3D BOY ROAMS / RUNS / SITS / GOES PRONE WITHOUT THE HORSE ==================== */
+          <group position={[0, 0, 0]}>
+            <BoyCharacter3D
+              stance={playerStance}
+              gaitPhaseRef={boyGaitPhaseRef}
+              moveFactorRef={boyMoveFactorRef}
+              scale={1.08}
+            />
+          </group>
         ) : (
+          /* ==================== USER'S 3D HORSE (user_horse_lod.glb) WITH NATURAL WALK, GALLOP, WHINNY & JUMP ==================== */
           <>
-            {/* ==================== 1. COMPOSITE WARHORSE MODEL ==================== */}
-            {/* Horse Barrel Torso */}
-            <mesh position={[0, 0.95, 0]} castShadow>
-          <boxGeometry args={[0.52, 0.52, 1.32]} />
-          <meshStandardMaterial color="#8c4620" roughness={0.68} />
-        </mesh>
+            <UserHorseModel3D animRef={horseAnimRef} scale={1.18} />
 
-        {/* Muscular Chest */}
-        <mesh position={[0, 1.0, 0.56]} castShadow>
-          <sphereGeometry args={[0.31, 14, 14]} />
-          <meshStandardMaterial color="#964c24" roughness={0.65} />
-        </mesh>
-
-        {/* Sculpted Hindquarters */}
-        <mesh position={[0, 1.0, -0.56]} castShadow>
-          <sphereGeometry args={[0.32, 14, 14]} />
-          <meshStandardMaterial color="#82401d" roughness={0.68} />
-        </mesh>
-
-        {/* Leather Saddle & Gold Trim */}
-        <group position={[0, 1.24, 0.02]}>
-          <mesh castShadow>
-            <boxGeometry args={[0.58, 0.12, 0.62]} />
-            <meshStandardMaterial color="#27160c" roughness={0.5} />
-          </mesh>
-          <mesh position={[0, 0.04, -0.26]}>
-            <boxGeometry args={[0.54, 0.14, 0.12]} />
-            <meshStandardMaterial color="#3b2112" roughness={0.45} />
-          </mesh>
-          <mesh position={[0, -0.02, 0]}>
-            <boxGeometry args={[0.61, 0.05, 0.65]} />
-            <meshStandardMaterial color="#f59e0b" roughness={0.3} metalness={0.25} />
-          </mesh>
-        </group>
-
-        {/* Horse Neck & Bridled Head Pivot */}
-        <group ref={neckPivotRef} position={[0, 1.15, 0.55]} rotation={[0.42, 0, 0]}>
-          <mesh position={[0, 0.36, 0.12]} castShadow>
-            <cylinderGeometry args={[0.16, 0.24, 0.78, 10]} />
-            <meshStandardMaterial color="#8c4620" roughness={0.68} />
-          </mesh>
-          <mesh position={[0, 0.38, 0.0]}>
-            <boxGeometry args={[0.08, 0.72, 0.16]} />
-            <meshStandardMaterial color="#1c120c" roughness={0.9} />
-          </mesh>
-
-          <group position={[0, 0.74, 0.28]} rotation={[0.35, 0, 0]}>
-            <mesh castShadow>
-              <boxGeometry args={[0.26, 0.26, 0.48]} />
-              <meshStandardMaterial color="#8c4620" roughness={0.68} />
-            </mesh>
-            <mesh position={[0, 0.135, 0.06]}>
-              <boxGeometry args={[0.08, 0.02, 0.32]} />
-              <meshStandardMaterial color="#f8fafc" roughness={0.6} />
-            </mesh>
-            <mesh position={[0, -0.04, 0.28]}>
-              <boxGeometry args={[0.2, 0.18, 0.22]} />
-              <meshStandardMaterial color="#4a2511" roughness={0.75} />
-            </mesh>
-            <mesh position={[0, 0.0, 0.18]}>
-              <boxGeometry args={[0.27, 0.27, 0.04]} />
-              <meshStandardMaterial color="#fbbf24" roughness={0.3} metalness={0.25} />
-            </mesh>
-            <mesh position={[-0.09, 0.2, -0.14]} rotation={[-0.2, 0, 0.15]}>
-              <coneGeometry args={[0.05, 0.18, 6]} />
-              <meshStandardMaterial color="#8c4620" roughness={0.75} />
-            </mesh>
-            <mesh position={[0.09, 0.2, -0.14]} rotation={[-0.2, 0, -0.15]}>
-              <coneGeometry args={[0.05, 0.18, 6]} />
-              <meshStandardMaterial color="#8c4620" roughness={0.75} />
-            </mesh>
-          </group>
-        </group>
-
-        {/* Horse Flowing Tail */}
-        <group ref={tailPivotRef} position={[0, 1.05, -0.78]} rotation={[-0.45, 0, 0]}>
-          <mesh position={[0, -0.35, -0.08]}>
-            <cylinderGeometry args={[0.06, 0.14, 0.72, 8]} />
-            <meshStandardMaterial color="#1c120c" roughness={0.9} />
-          </mesh>
-        </group>
-
-        {/* 4 Articulated Multi-Joint Legs */}
-        <group ref={flLegRef} position={[-0.2, 0.78, 0.48]}>
-          <mesh position={[0, -0.36, 0]} castShadow>
-            <cylinderGeometry args={[0.085, 0.065, 0.72, 8]} />
-            <meshStandardMaterial color="#783b1a" roughness={0.75} />
-          </mesh>
-          <mesh position={[0, -0.72, 0.02]}>
-            <boxGeometry args={[0.14, 0.12, 0.18]} />
-            <meshStandardMaterial color="#1e1b18" roughness={0.5} />
-          </mesh>
-        </group>
-
-        <group ref={frLegRef} position={[0.2, 0.78, 0.48]}>
-          <mesh position={[0, -0.36, 0]} castShadow>
-            <cylinderGeometry args={[0.085, 0.065, 0.72, 8]} />
-            <meshStandardMaterial color="#783b1a" roughness={0.75} />
-          </mesh>
-          <mesh position={[0, -0.72, 0.02]}>
-            <boxGeometry args={[0.14, 0.12, 0.18]} />
-            <meshStandardMaterial color="#1e1b18" roughness={0.5} />
-          </mesh>
-        </group>
-
-        <group ref={blLegRef} position={[-0.21, 0.78, -0.48]}>
-          <mesh position={[0, -0.36, 0]} castShadow>
-            <cylinderGeometry args={[0.095, 0.068, 0.72, 8]} />
-            <meshStandardMaterial color="#783b1a" roughness={0.75} />
-          </mesh>
-          <mesh position={[0, -0.72, 0.02]}>
-            <boxGeometry args={[0.14, 0.12, 0.18]} />
-            <meshStandardMaterial color="#1e1b18" roughness={0.5} />
-          </mesh>
-        </group>
-
-        <group ref={brLegRef} position={[0.21, 0.78, -0.48]}>
-          <mesh position={[0, -0.36, 0]} castShadow>
-            <cylinderGeometry args={[0.095, 0.068, 0.72, 8]} />
-            <meshStandardMaterial color="#783b1a" roughness={0.75} />
-          </mesh>
-          <mesh position={[0, -0.72, 0.02]}>
-            <boxGeometry args={[0.14, 0.12, 0.18]} />
-            <meshStandardMaterial color="#1e1b18" roughness={0.5} />
-          </mesh>
-        </group>
-
-        {/* ==================== 2. SOVEREIGN RIDER MODEL IN SADDLE ==================== */}
-        <group ref={riderTorsoRef} position={[0, 1.32, 0.0]}>
-          <mesh position={[0, 0.34, 0]} castShadow>
-            <boxGeometry args={[0.38, 0.52, 0.24]} />
-            <meshStandardMaterial color="#0f172a" roughness={0.55} />
-          </mesh>
-          <mesh position={[0, 0.38, 0.125]}>
-            <boxGeometry args={[0.24, 0.32, 0.03]} />
-            <meshStandardMaterial color="#f59e0b" roughness={0.3} metalness={0.25} />
-          </mesh>
-          <mesh position={[0, 0.28, -0.15]} rotation={[0.22, 0, 0]}>
-            <boxGeometry args={[0.42, 0.56, 0.04]} />
-            <meshStandardMaterial color="#f59e0b" roughness={0.65} />
-          </mesh>
-
-          <group position={[0, 0.74, 0.02]}>
-            <mesh castShadow>
-              <sphereGeometry args={[0.16, 14, 14]} />
-              <meshStandardMaterial color="#e2a77f" roughness={0.65} />
-            </mesh>
-            <mesh position={[0, 0.06, -0.02]}>
-              <sphereGeometry args={[0.168, 12, 12]} />
-              <meshStandardMaterial color="#1e293b" roughness={0.5} />
-            </mesh>
-            <mesh position={[0, 0.02, 0.14]}>
-              <boxGeometry args={[0.2, 0.06, 0.05]} />
-              <meshBasicMaterial color="#38bdf8" />
-            </mesh>
-          </group>
-
-          <mesh position={[-0.24, 0.36, 0.16]} rotation={[-0.65, 0.15, 0]}>
-            <cylinderGeometry args={[0.055, 0.05, 0.42, 8]} />
-            <meshStandardMaterial color="#1e293b" roughness={0.6} />
-          </mesh>
-          <mesh position={[0.24, 0.36, 0.16]} rotation={[-0.65, -0.15, 0]}>
-            <cylinderGeometry args={[0.055, 0.05, 0.42, 8]} />
-            <meshStandardMaterial color="#1e293b" roughness={0.6} />
-          </mesh>
-
-          <mesh position={[-0.14, 0.32, 0.42]} rotation={[0.25, 0, 0]}>
-            <boxGeometry args={[0.02, 0.02, 0.52]} />
-            <meshStandardMaterial color="#fbbf24" roughness={0.4} />
-          </mesh>
-          <mesh position={[0.14, 0.32, 0.42]} rotation={[0.25, 0, 0]}>
-            <boxGeometry args={[0.02, 0.02, 0.52]} />
-            <meshStandardMaterial color="#fbbf24" roughness={0.4} />
-          </mesh>
-
-          <mesh position={[-0.27, -0.06, 0.08]} rotation={[0.25, 0, 0.18]}>
-            <cylinderGeometry args={[0.07, 0.06, 0.48, 8]} />
-            <meshStandardMaterial color="#1e293b" roughness={0.65} />
-          </mesh>
-          <mesh position={[0.27, -0.06, 0.08]} rotation={[0.25, 0, -0.18]}>
-            <cylinderGeometry args={[0.07, 0.06, 0.48, 8]} />
-            <meshStandardMaterial color="#1e293b" roughness={0.65} />
-          </mesh>
-        </group>
+            {/* Optional 3D Boy Rider sitting astride the saddle when showBoyRiderOnHorse is enabled */}
+            {showBoyRiderOnHorse && (
+              <group ref={riderTorsoRef} position={[0, 1.27, -0.21]}>
+                <BoyCharacter3D
+                  stance="horse_mount"
+                  gaitPhaseRef={boyGaitPhaseRef}
+                  moveFactorRef={boyMoveFactorRef}
+                  scale={0.84}
+                />
+                {/* Golden Reins connecting Bridle to the Boy's Hands */}
+                <mesh position={[-0.16, 0.36, 0.44]} rotation={[0.25, 0, 0]}>
+                  <boxGeometry args={[0.018, 0.018, 0.52]} />
+                  <meshStandardMaterial color="#fbbf24" roughness={0.4} />
+                </mesh>
+                <mesh position={[0.16, 0.36, 0.44]} rotation={[0.25, 0, 0]}>
+                  <boxGeometry args={[0.018, 0.018, 0.52]} />
+                  <meshStandardMaterial color="#fbbf24" roughness={0.4} />
+                </mesh>
+              </group>
+            )}
           </>
         )}
       </group>
@@ -3145,8 +3610,6 @@ export interface PlanetaryWorldR3FProps {
 export default function PlanetaryWorldR3F({
   planetId = 'gaia',
   planetName = 'Gaia',
-  isOwner = true,
-  ownerName = 'Commander (You)',
   onExitToSpace,
 }: PlanetaryWorldR3FProps) {
   // Core 5-Scene State Machine for the 1 Planet
@@ -3190,7 +3653,22 @@ export default function PlanetaryWorldR3F({
   const [statusBanner, setStatusBanner] = useState<string | null>(null);
 
   const [gallopEnabled, setGallopEnabled] = useState(false);
+  const [playerStance, setPlayerStance] = useState<'stand' | 'crouch' | 'prone'>('stand');
+  const [isMountedOnHorse, setIsMountedOnHorse] = useState(true);
+  const [showBoyRiderOnHorse, setShowBoyRiderOnHorse] = useState(false);
+  const [whinnyActiveUI, setWhinnyActiveUI] = useState(false);
+  const whinnyTimeRef = useRef<number>(0);
   const [customModel, setCustomModel] = useState<LoadedCustom3DModel | null>(null);
+
+  const triggerHorseWhinny = () => {
+    setIsMountedOnHorse(true);
+    whinnyTimeRef.current = 1.85;
+    setWhinnyActiveUI(true);
+    playHorseWhinnySound();
+    window.setTimeout(() => {
+      setWhinnyActiveUI(false);
+    }, 1850);
+  };
 
   // Virtual Analog Joystick State (Works for Horse, FF Walking in Square, AND Rotating Globe!)
   const [joyKnob, setJoyKnob] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
@@ -3364,6 +3842,43 @@ export default function PlanetaryWorldR3F({
       }
       keysRef.current[e.code] = true;
       if (e.code === 'KeyC') {
+        // Free Fire Sit / Crouch toggle (dismounts horse if mounted)
+        setIsMountedOnHorse(false);
+        setPlayerStance((s) => (s === 'crouch' ? 'stand' : 'crouch'));
+      }
+      if (e.code === 'KeyZ') {
+        // Free Fire Prone / Crawl toggle (dismounts horse if mounted)
+        setIsMountedOnHorse(false);
+        setPlayerStance((s) => (s === 'prone' ? 'stand' : 'prone'));
+      }
+      if (e.code === 'KeyH' && sceneMode === 'planet') {
+        // Command boy to Ride Horse or Dismount back to on-foot roaming
+        setIsMountedOnHorse((mounted) => {
+          const next = !mounted;
+          if (next) setPlayerStance('stand');
+          return next;
+        });
+      }
+      if (e.code === 'KeyR' && sceneMode === 'planet') {
+        setIsMountedOnHorse(true);
+        setShowBoyRiderOnHorse((prev) => !prev);
+      }
+      if (e.code === 'KeyN' && sceneMode === 'planet') {
+        triggerHorseWhinny();
+      }
+      if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') {
+        // Pressing Sprint while crouched/prone stands the boy up to run
+        setPlayerStance('stand');
+      }
+      if (e.code === 'Space') {
+        e.preventDefault();
+        uiSteerRef.current.jump = true;
+        setPlayerStance((s) => (s !== 'stand' ? 'stand' : s));
+        if (sceneMode === 'planet') {
+          playHorseJumpSound();
+        }
+      }
+      if (e.code === 'KeyV') {
         if (sceneMode === 'planet') {
           setCameraMode((m) => (m === 'chase' ? 'globe' : 'chase'));
         } else if (sceneMode === 'square') {
@@ -3467,11 +3982,13 @@ export default function PlanetaryWorldR3F({
     <div className="relative h-screen w-screen overflow-hidden bg-[#030712] select-none">
       {/* ==================== REACT THREE FIBER 3D SCENE CANVAS ==================== */}
       <Canvas
-        shadows
-        dpr={[1, 2]}
+        shadows={IS_SOFTWARE_GL ? false : { type: THREE.PCFShadowMap }}
+        dpr={IS_SOFTWARE_GL ? 1 : [1, 2]}
+        frameloop={IS_SOFTWARE_GL ? 'demand' : 'always'}
         camera={{ position: [0, 12, 42], fov: 55, near: 0.1, far: 550 }}
-        gl={{ antialias: true, powerPreference: 'high-performance' }}
+        gl={{ antialias: !IS_SOFTWARE_GL, powerPreference: 'high-performance' }}
       >
+        {IS_SOFTWARE_GL && <SoftwareGlFramePacer />}
         <color
           attach="background"
           args={[
@@ -3502,7 +4019,7 @@ export default function PlanetaryWorldR3F({
           position={[35, 28, 65]}
           intensity={1.9}
           color="#fffbeb"
-          castShadow
+          castShadow={!IS_SOFTWARE_GL}
           shadow-mapSize-width={1024}
           shadow-mapSize-height={1024}
           shadow-bias={-0.0005}
@@ -3542,12 +4059,16 @@ export default function PlanetaryWorldR3F({
               riderStateRef={riderStateRef}
               keysRef={keysRef}
               uiSteerRef={uiSteerRef}
+              whinnyTimeRef={whinnyTimeRef}
               autopilotTarget={autopilotTarget}
               onClearAutopilot={() => setAutopilotTarget(null)}
               onReachLandmark={setNearbyLandmark}
               onTelemetryUpdate={setTelemetry}
               cameraMode={cameraMode}
               customModel={customModel}
+              playerStance={playerStance}
+              isMountedOnHorse={isMountedOnHorse}
+              showBoyRiderOnHorse={showBoyRiderOnHorse}
             />
 
             {cameraMode === 'globe' && (
@@ -3573,6 +4094,7 @@ export default function PlanetaryWorldR3F({
             keysRef={keysRef}
             uiSteerRef={uiSteerRef}
             squareCamMode={squareCamMode}
+            playerStance={playerStance}
             onNearShopChange={(sh) => {
               if (sh) setNearShop(sh);
             }}
@@ -3659,7 +4181,7 @@ export default function PlanetaryWorldR3F({
                 }`}
               >
                 <User className="w-3.5 h-3.5 text-amber-300" />
-                <span>Horse Chase</span>
+                <span>{isMountedOnHorse ? 'Horse Chase' : 'Player Chase'}</span>
               </button>
               <button
                 onClick={() => setCameraMode('globe')}
@@ -4498,7 +5020,9 @@ export default function PlanetaryWorldR3F({
                 ? 'Globe Spin Joystick'
                 : sceneMode === 'square'
                   ? 'FF Walk Joystick'
-                  : 'Horse Ride Joystick'}
+                  : isMountedOnHorse
+                    ? 'Horse Ride Joystick'
+                    : 'FF Player Joystick'}
             </span>
           </div>
 
@@ -4544,14 +5068,18 @@ export default function PlanetaryWorldR3F({
         </div>
       )}
 
-      {/* ==================== BOTTOM-CENTER: CONTEXTUAL ENTER SQUARE OR SHOP PROMPT ==================== */}
+      {/* ==================== BOTTOM-LEFT-CENTER: CONTEXTUAL ENTER SQUARE OR SHOP PROMPT (KEEPS CENTER ROAD CLEAR) ==================== */}
       {sceneMode === 'planet' && (
-        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-20 w-[calc(100vw-11rem)] max-w-md pointer-events-auto flex flex-col gap-2">
+        <div className="fixed bottom-32 left-4 sm:bottom-4 sm:left-64 z-20 w-[calc(100vw-2rem)] sm:w-auto sm:max-w-xs pointer-events-auto flex flex-col gap-1.5">
           {autopilotTarget && (
-            <div className="bg-slate-950/95 border border-amber-400/60 rounded-2xl px-3.5 py-2 flex items-center justify-between gap-2 shadow-xl">
-              <div className="text-xs font-mono-tech text-amber-200 flex items-center gap-2">
-                <span>🐎</span>
-                <span>Riding horse toward {autopilotTarget.name}...</span>
+            <div className="bg-slate-950/95 border border-amber-400/60 rounded-2xl px-3 py-1.5 flex items-center justify-between gap-2 shadow-xl">
+              <div className="text-[11px] font-mono-tech text-amber-200 flex items-center gap-1.5">
+                <span>{isMountedOnHorse ? '🐎' : '🏃'}</span>
+                <span className="truncate">
+                  {isMountedOnHorse
+                    ? `Riding to ${autopilotTarget.name}...`
+                    : `Running to ${autopilotTarget.name}...`}
+                </span>
               </div>
               <button
                 onClick={() => setAutopilotTarget(null)}
@@ -4563,26 +5091,26 @@ export default function PlanetaryWorldR3F({
           )}
 
           {nearbyLandmark && (
-            <div className="bg-slate-950/95 border border-emerald-400/60 rounded-2xl p-3 flex items-center justify-between gap-3 shadow-xl">
-              <div>
+            <div className="bg-slate-950/95 border border-emerald-400/60 rounded-2xl px-3 py-2 flex items-center justify-between gap-2.5 shadow-xl">
+              <div className="min-w-0">
                 <div className="flex items-center gap-1.5">
-                  <MapPin className="w-3.5 h-3.5 text-emerald-400" />
-                  <span className="font-display text-xs sm:text-sm font-bold text-white">
+                  <MapPin className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                  <span className="font-display text-xs font-bold text-white truncate">
                     {nearbyLandmark.icon} {nearbyLandmark.name}
                   </span>
-                  <span className="text-[10px] font-mono-tech px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300">
-                    Dummy Lv.{computeSectorDummyLevel(nearbyLandmark.id, ecosystem).level}
+                  <span className="text-[9px] font-mono-tech px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 shrink-0">
+                    Lv.{computeSectorDummyLevel(nearbyLandmark.id, ecosystem).level}
                   </span>
                 </div>
-                <p className="text-[11px] text-slate-300 mt-0.5">
+                <p className="text-[10px] text-slate-300 mt-0.5 truncate">
                   {nearbyLandmark.subtitle}
                 </p>
               </div>
               <button
                 onClick={() => handleEnterPlaceSquare(nearbyLandmark)}
-                className="px-3 py-1.5 rounded-xl text-xs font-mono-tech font-bold bg-emerald-500 text-slate-950 hover:bg-emerald-400 whitespace-nowrap shadow-md"
+                className="px-2.5 py-1.5 rounded-xl text-[11px] font-mono-tech font-bold bg-emerald-500 text-slate-950 hover:bg-emerald-400 whitespace-nowrap shadow-md shrink-0"
               >
-                🏰 Enter Square [E]
+                🏰 Square [E]
               </button>
             </div>
           )}
@@ -4590,58 +5118,170 @@ export default function PlanetaryWorldR3F({
       )}
 
       {sceneMode === 'square' && nearShop && (
-        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-20 w-[calc(100vw-11rem)] max-w-md pointer-events-auto">
-          <div className="bg-slate-950/95 border border-cyan-400/70 rounded-2xl p-3 flex items-center justify-between gap-3 shadow-xl">
-            <div>
-              <div className="text-xs sm:text-sm font-display font-bold text-white">
+        <div className="fixed bottom-32 left-4 sm:bottom-4 sm:left-64 z-20 w-[calc(100vw-2rem)] sm:w-auto sm:max-w-xs pointer-events-auto">
+          <div className="bg-slate-950/95 border border-cyan-400/70 rounded-2xl px-3 py-2 flex items-center justify-between gap-2.5 shadow-xl">
+            <div className="min-w-0">
+              <div className="text-xs font-display font-bold text-white truncate">
                 🏪 {nearShop.name}
               </div>
-              <p className="text-[11px] text-slate-300">{nearShop.role}</p>
+              <p className="text-[10px] text-slate-300 truncate">{nearShop.role}</p>
             </div>
             <button
               onClick={() => handleOpenTrainingRoomForShop(nearShop)}
-              className="px-3 py-1.5 rounded-xl text-xs font-mono-tech font-bold bg-cyan-400 text-slate-950 hover:bg-cyan-300 whitespace-nowrap shadow-md"
+              className="px-2.5 py-1.5 rounded-xl text-[11px] font-mono-tech font-bold bg-cyan-400 text-slate-950 hover:bg-cyan-300 whitespace-nowrap shadow-md shrink-0"
             >
-              📱 Log Progress [F]
+              📱 Log [F]
             </button>
           </div>
         </div>
       )}
 
-      {/* ==================== BOTTOM-RIGHT: GALLOP / SPRINT & JUMP CONTROLS ==================== */}
+      {/* ==================== BOTTOM-RIGHT: HORSE ACTIONS (WALK, RUN/GALLOP, WHINNY, JUMP) & FREE FIRE BOY STANCES ==================== */}
       {(sceneMode === 'planet' || sceneMode === 'square') && (
-        <div className="fixed bottom-4 right-4 z-20 flex items-center gap-2 pointer-events-auto">
+        <div className="fixed bottom-4 right-4 z-20 flex flex-wrap items-center justify-end gap-1.5 max-w-[64vw] pointer-events-auto">
+          {/* 1. Free Fire Sit / Crouch [C] */}
+          <button
+            onClick={() => {
+              setIsMountedOnHorse(false);
+              setPlayerStance((s) => (s === 'crouch' ? 'stand' : 'crouch'));
+            }}
+            className={`px-2.5 py-2 rounded-2xl text-xs font-mono-tech font-bold flex items-center gap-1.5 border shadow-xl transition-all ${
+              !isMountedOnHorse && playerStance === 'crouch'
+                ? 'bg-emerald-500/30 border-emerald-400 text-emerald-200'
+                : 'bg-slate-950/95 border-slate-700 text-slate-300 hover:text-white'
+            }`}
+            title="Free Fire Boy Sit / Crouch Stance (Key C)"
+          >
+            <span>🧎</span>
+            <span>
+              {!isMountedOnHorse && playerStance === 'crouch'
+                ? 'Sitting [C]'
+                : 'Sit [C]'}
+            </span>
+          </button>
+
+          {/* 2. Free Fire Prone / Crawl [Z] */}
+          <button
+            onClick={() => {
+              setIsMountedOnHorse(false);
+              setPlayerStance((s) => (s === 'prone' ? 'stand' : 'prone'));
+            }}
+            className={`px-2.5 py-2 rounded-2xl text-xs font-mono-tech font-bold flex items-center gap-1.5 border shadow-xl transition-all ${
+              !isMountedOnHorse && playerStance === 'prone'
+                ? 'bg-rose-500/30 border-rose-400 text-rose-200'
+                : 'bg-slate-950/95 border-slate-700 text-slate-300 hover:text-white'
+            }`}
+            title="Free Fire Boy Prone / Crawl Stance (Key Z)"
+          >
+            <span>趴</span>
+            <span>Prone [Z]</span>
+          </button>
+
+          {/* 3. Walk vs Run / Gallop [Shift] */}
           <button
             onClick={() => {
               const next = !gallopEnabled;
               setGallopEnabled(next);
               uiSteerRef.current.gallop = next;
+              if (next && !isMountedOnHorse) {
+                setPlayerStance('stand');
+              }
             }}
-            className={`px-3 py-2.5 rounded-2xl text-xs font-mono-tech font-bold flex items-center gap-1.5 border shadow-xl transition-all ${
+            className={`px-3 py-2 rounded-2xl text-xs font-mono-tech font-bold flex items-center gap-1.5 border shadow-xl transition-all ${
               gallopEnabled
                 ? 'bg-amber-500/30 border-amber-400 text-amber-200'
                 : 'bg-slate-950/95 border-slate-700 text-slate-300 hover:text-white'
             }`}
+            title="Toggle Natural Walk vs Fast Run / Gallop (Shift)"
           >
             <Footprints className="w-4 h-4 text-amber-300" />
             <span>
-              {sceneMode === 'square'
+              {isMountedOnHorse
                 ? gallopEnabled
-                  ? 'FF Sprinting'
-                  : 'FF Sprint'
+                  ? 'Galloping [Shift]'
+                  : 'Run / Gallop [Shift]'
                 : gallopEnabled
-                  ? 'Galloping'
-                  : 'Gallop'}
+                  ? 'Running [Shift]'
+                  : 'Run [Shift]'}
             </span>
           </button>
 
+          {/* 4. Horse Whinny / Neigh + Rear Up [N] */}
+          {sceneMode === 'planet' && (
+            <button
+              onClick={triggerHorseWhinny}
+              className={`px-3 py-2 rounded-2xl text-xs font-mono-tech font-bold flex items-center gap-1.5 border shadow-xl transition-all ${
+                whinnyActiveUI
+                  ? 'bg-orange-500 border-orange-300 text-slate-950 scale-105'
+                  : 'bg-slate-950/95 border-orange-400/70 text-orange-300 hover:bg-orange-500/20'
+              }`}
+              title="Make Horse Rear Up & Whinny / Neigh with Sound (Key N)"
+            >
+              <span>🔊</span>
+              <span>{whinnyActiveUI ? 'Whinnying!' : 'Whinny [N]'}</span>
+            </button>
+          )}
+
+          {/* 5. Toggle Boy Rider Astride Saddle [R] */}
+          {sceneMode === 'planet' && isMountedOnHorse && (
+            <button
+              onClick={() => setShowBoyRiderOnHorse((prev) => !prev)}
+              className={`px-2.5 py-2 rounded-2xl text-xs font-mono-tech font-bold flex items-center gap-1.5 border shadow-xl transition-all ${
+                showBoyRiderOnHorse
+                  ? 'bg-indigo-500/30 border-indigo-400 text-indigo-200'
+                  : 'bg-slate-950/95 border-slate-700 text-slate-300 hover:text-white'
+              }`}
+              title="Toggle Boy Sitting Astride Horse Saddle vs Horse Solo (Key R)"
+            >
+              <span>{showBoyRiderOnHorse ? '🤠' : '🐎'}</span>
+              <span>{showBoyRiderOnHorse ? 'Rider: ON [R]' : 'Horse Solo [R]'}</span>
+            </button>
+          )}
+
+          {/* 6. Switch between Horse Mode and Boy On-Foot Mode [H] */}
+          {sceneMode === 'planet' && (
+            <button
+              onClick={() => {
+                setIsMountedOnHorse((mounted) => {
+                  const next = !mounted;
+                  if (next) setPlayerStance('stand');
+                  return next;
+                });
+              }}
+              className={`px-3 py-2 rounded-2xl text-xs font-mono-tech font-bold flex items-center gap-1.5 border shadow-xl transition-all ${
+                isMountedOnHorse
+                  ? 'bg-amber-500 border-amber-300 text-slate-950'
+                  : 'bg-slate-950/95 border-amber-400/60 text-amber-300 hover:bg-amber-500/20'
+              }`}
+              title="Switch between Horse & Boy On-Foot Roaming (Key H)"
+            >
+              <span>{isMountedOnHorse ? '🚶' : '🐎'}</span>
+              <span>
+                {isMountedOnHorse ? 'Boy on Foot [H]' : 'Ride Horse [H]'}
+              </span>
+            </button>
+          )}
+
+          {/* 7. Horse Bascule Jump / Boy Jump [Space] */}
           <button
             onClick={() => {
-              uiSteerRef.current.jump = true;
+              if (!isMountedOnHorse && playerStance !== 'stand') {
+                setPlayerStance('stand');
+              } else {
+                uiSteerRef.current.jump = true;
+                if (sceneMode === 'planet' && isMountedOnHorse) {
+                  playHorseJumpSound();
+                }
+              }
             }}
-            className="px-3.5 py-2.5 rounded-2xl bg-sky-500/25 hover:bg-sky-500/35 border border-sky-400 text-xs font-mono-tech font-bold text-sky-200 shadow-xl active:scale-95"
+            className="px-3 py-2 rounded-2xl bg-sky-500/25 hover:bg-sky-500/35 border border-sky-400 text-xs font-mono-tech font-bold text-sky-200 shadow-xl active:scale-95"
+            title="Horse Bascule Jump / Stand Up (Space)"
           >
-            {sceneMode === 'square' ? 'Jump' : 'Rear / Jump'}
+            {!isMountedOnHorse && playerStance !== 'stand'
+              ? 'Stand Up'
+              : isMountedOnHorse
+                ? '⬆️ Jump [Space]'
+                : 'Jump'}
           </button>
         </div>
       )}

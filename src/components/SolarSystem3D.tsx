@@ -1,43 +1,23 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import {
   Rocket,
-  Shield,
-  Coins,
-  Droplets,
-  Sparkles,
   Compass,
   Globe2,
   MapPin,
   User,
   Zap,
   Music,
-  Heart,
   Footprints,
   Moon,
   ArrowUp,
   Smile,
-  Menu,
-  X,
   Lock,
   Crown,
-  Sliders,
-  PlaySquare,
-  BarChart3,
-  LogOut,
   Eye,
-  CheckCircle2,
 } from 'lucide-react';
-import { useAuth } from '@/hooks/useAuth';
-import {
-  getAllPlanetOwnerships,
-  claimPlanetForUser,
-  getTotalPlanetsCount,
-  setTotalPlanetsCount,
-  type PlanetOwnership,
-} from '@/lib/firestore';
 import {
   createFlutedSpruceTree,
   createBushyRoundOakTree,
@@ -171,9 +151,7 @@ const INITIAL_BASE_ENTITIES: BaseEntity[] = [
 
 // Continuous Open-World Spherical Planet Constants (No Floating Blocks)
 const R_PLANET = 58.0;             // Sea-Level Ocean Radius of the 3D Spherical World
-const R_VILLAGE = R_PLANET;        // Base reference radius (terrain height is added continuously per vertex)
 const TILE_ANGLE = 0.0165;         // Angular step per world unit across the continuous continent
-const TILE_WORLD = R_PLANET * TILE_ANGLE;
 
 // Winding Dirt & Cobblestone Road Network connecting all 6 Landmarks across the continent
 const PLANET_ROAD_SEGMENTS: Array<{
@@ -1604,8 +1582,8 @@ function EarthBase3DView({
   const [isSprinting, setIsSprinting] = useState(false);
   const [skillActive, setSkillActive] = useState(false);
   const [isEmoting, setIsEmoting] = useState(false);
-  const [hp, setHp] = useState(200);
-  const [ep, setEp] = useState(150);
+  const [, setHp] = useState(200);
+  const [, setEp] = useState(150);
 
   // Virtual Analog Joystick UI State
   const [joyKnob, setJoyKnob] = useState({ x: 0, y: 0 });
@@ -1693,7 +1671,7 @@ function EarthBase3DView({
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, isMobile ? 1.5 : 2));
     renderer.shadowMap.enabled = !isMobile;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.shadowMap.type = THREE.PCFShadowMap;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.12;
     container.appendChild(renderer.domElement);
@@ -5048,7 +5026,7 @@ function generateEarthCloudsTexture(planetId = 'gaia') {
   return tex;
 }
 
-function generateRingTexture(isSaturn = true) {
+export function generateRingTexture(isSaturn = true) {
   const width = 512,
     height = 32;
   const canvas = document.createElement('canvas');
@@ -6861,7 +6839,7 @@ export default function SolarSystem3D() {
     }
 
     let isCockpitCanvasDragging = false;
-    let lastCockpitPointer = { x: 0, y: 0 };
+    const lastCockpitPointer = { x: 0, y: 0 };
 
     function onPointerDown(e: PointerEvent) {
       pointerDownPos.x = e.clientX;

@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import {
   type AsteroidTarget,
   type ClanWarRewardItem,
@@ -24,11 +24,12 @@ function ensureMainHallLoaded(onReady: (geom: THREE.BufferGeometry) => void) {
   mainHallLoadStarted = true;
 
   const loader = new GLTFLoader();
-  const processGltf = (gltf: any) => {
+  const processGltf = (gltf: GLTF) => {
     let foundGeom: THREE.BufferGeometry | null = null;
-    gltf.scene.traverse((child: any) => {
-      if (!foundGeom && child.isMesh && child.geometry) {
-        foundGeom = child.geometry.clone();
+    gltf.scene.traverse((child: THREE.Object3D) => {
+      const mesh = child as THREE.Mesh;
+      if (!foundGeom && mesh.isMesh && mesh.geometry) {
+        foundGeom = mesh.geometry.clone();
       }
     });
     if (foundGeom) {
@@ -79,13 +80,14 @@ function ensureTownHallLoaded(onReady: (data: CachedTownHallData) => void) {
   townHallLoadStarted = true;
 
   const loader = new GLTFLoader();
-  const processGltf = (gltf: any) => {
+  const processGltf = (gltf: GLTF) => {
     let foundGeom: THREE.BufferGeometry | null = null;
     let foundMap: THREE.Texture | null = null;
-    gltf.scene.traverse((child: any) => {
-      if (!foundGeom && child.isMesh && child.geometry) {
-        foundGeom = child.geometry.clone();
-        const mat = Array.isArray(child.material) ? child.material[0] : child.material;
+    gltf.scene.traverse((child: THREE.Object3D) => {
+      const mesh = child as THREE.Mesh;
+      if (!foundGeom && mesh.isMesh && mesh.geometry) {
+        foundGeom = mesh.geometry.clone();
+        const mat = (Array.isArray(mesh.material) ? mesh.material[0] : mesh.material) as THREE.MeshStandardMaterial | undefined;
         if (mat && mat.map) {
           foundMap = mat.map;
           if (foundMap) {
@@ -182,13 +184,14 @@ function ensureSquareBaseLoaded(onReady: (data: CachedTownHallData) => void) {
   squareBaseLoadStarted = true;
 
   const loader = new GLTFLoader();
-  const processGltf = (gltf: any) => {
+  const processGltf = (gltf: GLTF) => {
     let foundGeom: THREE.BufferGeometry | null = null;
     let foundMap: THREE.Texture | null = null;
-    gltf.scene.traverse((child: any) => {
-      if (!foundGeom && child.isMesh && child.geometry) {
-        foundGeom = child.geometry.clone();
-        const mat = Array.isArray(child.material) ? child.material[0] : child.material;
+    gltf.scene.traverse((child: THREE.Object3D) => {
+      const mesh = child as THREE.Mesh;
+      if (!foundGeom && mesh.isMesh && mesh.geometry) {
+        foundGeom = mesh.geometry.clone();
+        const mat = (Array.isArray(mesh.material) ? mesh.material[0] : mesh.material) as THREE.MeshStandardMaterial | undefined;
         if (mat && mat.map) {
           foundMap = mat.map;
           if (foundMap) {
@@ -621,104 +624,989 @@ export function PlanetDummyLevelTotem({
 }
 
 /* ============================================================================
- * 3. COMPOSITE 3D FREE FIRE CHARACTER MODEL (FOR SQUARE WALKING & TRAINING ROOM)
+ * 3. USER'S 3D BOY CHARACTER (boy_character_lod.glb) WITH FREE FIRE STANCES
+ *    Supports: Stand / Walk / Run, FF Sit (Crouch), FF Prone (Crawl), & Horse Mount
+ * ============================================================================ */
+export type FFPlayerStance = 'stand' | 'crouch' | 'prone' | 'horse_mount';
+
+let cachedBoyGeometry: THREE.BufferGeometry | null = null;
+let boyLoadListeners: Array<(geom: THREE.BufferGeometry) => void> = [];
+let boyLoadStarted = false;
+
+function ensureBoyCharacterLoaded(onReady: (geom: THREE.BufferGeometry) => void) {
+  if (cachedBoyGeometry) {
+    onReady(cachedBoyGeometry);
+    return;
+  }
+  boyLoadListeners.push(onReady);
+  if (boyLoadStarted) return;
+  boyLoadStarted = true;
+
+  const loader = new GLTFLoader();
+  loader.load(
+    '/models/boy_character_lod.glb',
+    (gltf) => {
+      let foundGeom: THREE.BufferGeometry | null = null;
+      gltf.scene.traverse((child: THREE.Object3D) => {
+        const mesh = child as THREE.Mesh;
+        if (!foundGeom && mesh.isMesh && mesh.geometry) {
+          foundGeom = mesh.geometry.clone();
+        }
+      });
+      if (foundGeom) {
+        const geom = foundGeom as THREE.BufferGeometry;
+        if (!geom.attributes.normal) {
+          geom.computeVertexNormals();
+        }
+        geom.computeBoundingBox();
+        cachedBoyGeometry = geom;
+        boyLoadListeners.forEach((cb) => cb(geom));
+        boyLoadListeners = [];
+      }
+    },
+    undefined,
+    (err) => {
+      console.warn('Boy character GLB load warning:', err);
+    },
+  );
+}
+
+const BOY_CHARACTER_VERTEX_SHADER = /* glsl */ `
+  attribute vec3 color;
+
+  uniform float uGaitPhase;
+  uniform float uMoveFactor;
+  uniform float uStance; // 0.0 = stand/walk/run, 1.0 = crouch (FF sit), 2.0 = prone, 3.0 = horse_mount
+  uniform float uIdleTime;
+
+  varying vec3 vColor;
+  varying vec3 vWorldNormal;
+  varying vec3 vOrigPos;
+
+  vec2 rot2D(vec2 v, float a) {
+    float c = cos(a);
+    float s = sin(a);
+    return vec2(v.x * c - v.y * s, v.x * s + v.y * c);
+  }
+
+  void main() {
+    vColor = length(color) > 0.01 ? color : vec3(0.85, 0.68, 0.52);
+    vOrigPos = position;
+
+    vec3 pos = position;
+    vec3 norm = normal;
+
+    float origX = position.x;
+    float origY = position.y;
+    float origZ = position.z;
+    float absX = abs(origX);
+    float legSign = origX < 0.0 ? 1.0 : -1.0;
+
+    bool isLeg = origY < 0.44 && (absX < 0.205 || origY < 0.41);
+    bool isLowerLeg = origY < 0.24 && (absX < 0.205 || origY < 0.41);
+    bool isArm = absX >= 0.205 && origY >= 0.41 && origY < 0.88;
+    bool isHead = origY >= 0.90;
+    bool isUpperBody = origY >= 0.44;
+
+    if (uStance < 0.5) {
+      // ==================== STANCE 0: STAND / WALK / RUN ====================
+      float mf = clamp(uMoveFactor, 0.0, 1.35);
+
+      if (isLowerLeg) {
+        float kneeAngle = max(0.0, -sin(uGaitPhase * legSign + 0.5)) * 0.75 * mf;
+        vec2 yz = rot2D(vec2(pos.y - 0.24, pos.z - 0.02), -kneeAngle);
+        pos.y = 0.24 + yz.x;
+        pos.z = 0.02 + yz.y;
+        vec2 nyz = rot2D(vec2(norm.y, norm.z), -kneeAngle);
+        norm.y = nyz.x;
+        norm.z = nyz.y;
+      }
+
+      if (isLeg) {
+        float hipAngle = sin(uGaitPhase) * legSign * 0.65 * mf;
+        vec2 yz = rot2D(vec2(pos.y - 0.44, pos.z), hipAngle);
+        pos.y = 0.44 + yz.x;
+        pos.z = yz.y;
+        vec2 nyz = rot2D(vec2(norm.y, norm.z), hipAngle);
+        norm.y = nyz.x;
+        norm.z = nyz.y;
+      }
+
+      if (isArm) {
+        float armAngle = -sin(uGaitPhase) * legSign * 0.68 * mf;
+        vec2 yz = rot2D(vec2(pos.y - 0.82, pos.z), armAngle);
+        pos.y = 0.82 + yz.x;
+        pos.z = yz.y;
+        vec2 nyz = rot2D(vec2(norm.y, norm.z), armAngle);
+        norm.y = nyz.x;
+        norm.z = nyz.y;
+      }
+
+      if (isUpperBody) {
+        float sprintLean = 0.16 * clamp((mf - 0.65) * 1.4, 0.0, 1.0);
+        vec2 yz = rot2D(vec2(pos.y - 0.44, pos.z), sprintLean);
+        pos.y = 0.44 + yz.x;
+        pos.z = yz.y;
+        vec2 nyz = rot2D(vec2(norm.y, norm.z), sprintLean);
+        norm.y = nyz.x;
+        norm.z = nyz.y;
+
+        if (mf < 0.05) {
+          pos.y += sin(uIdleTime * 2.6) * 0.012 * clamp((origY - 0.44) / 0.5, 0.0, 1.0);
+        }
+      }
+
+      pos.y += abs(cos(uGaitPhase)) * 0.045 * mf;
+    } else if (uStance < 1.5) {
+      // ==================== STANCE 1: FREE FIRE SIT / CROUCH ====================
+      float mf = clamp(uMoveFactor, 0.0, 1.0);
+
+      if (isLowerLeg) {
+        float kneeAngle = 1.35;
+        vec2 yz = rot2D(vec2(pos.y - 0.24, pos.z - 0.02), -kneeAngle);
+        pos.y = 0.24 + yz.x;
+        pos.z = 0.02 + yz.y;
+        vec2 nyz = rot2D(vec2(norm.y, norm.z), -kneeAngle);
+        norm.y = nyz.x;
+        norm.z = nyz.y;
+      }
+
+      if (isLeg) {
+        float hipAngle = 1.28 + sin(uGaitPhase) * legSign * 0.36 * mf;
+        vec2 yz = rot2D(vec2(pos.y - 0.44, pos.z), hipAngle);
+        pos.y = 0.44 + yz.x;
+        pos.z = yz.y;
+        // Splay knees outward like the classic Free Fire sit/crouch stance
+        float kneeFactor = 1.0 - abs(origY - 0.24) / 0.24;
+        pos.x += (origX < 0.0 ? -1.0 : 1.0) * (0.045 + 0.055 * clamp(kneeFactor, 0.0, 1.0));
+        vec2 nyz = rot2D(vec2(norm.y, norm.z), hipAngle);
+        norm.y = nyz.x;
+        norm.z = nyz.y;
+      }
+
+      if (isArm) {
+        float armAngle = 0.68 - sin(uGaitPhase) * legSign * 0.35 * mf;
+        vec2 yz = rot2D(vec2(pos.y - 0.82, pos.z), armAngle);
+        pos.y = 0.82 + yz.x;
+        pos.z = yz.y;
+        vec2 nyz = rot2D(vec2(norm.y, norm.z), armAngle);
+        norm.y = nyz.x;
+        norm.z = nyz.y;
+      }
+
+      if (isUpperBody) {
+        float crouchLean = 0.34;
+        vec2 yz = rot2D(vec2(pos.y - 0.44, pos.z), crouchLean);
+        pos.y = 0.44 + yz.x;
+        pos.z = yz.y;
+        vec2 nyz = rot2D(vec2(norm.y, norm.z), crouchLean);
+        norm.y = nyz.x;
+        norm.z = nyz.y;
+      }
+
+      if (isHead) {
+        // Keep eyes level looking down the road while crouched
+        float headUp = -0.22;
+        vec2 yz = rot2D(vec2(pos.y - 0.90, pos.z), headUp);
+        pos.y = 0.90 + yz.x;
+        pos.z = yz.y;
+      }
+
+      // Drop hips deeply so the boy clearly squats low to the ground
+      pos.y -= 0.25 - abs(cos(uGaitPhase)) * 0.024 * mf;
+    } else if (uStance < 2.5) {
+      // ==================== STANCE 2: FREE FIRE PRONE / CRAWL ====================
+      float mf = clamp(uMoveFactor, 0.0, 1.0);
+
+      if (isHead) {
+        float headUp = -0.56;
+        vec2 yz = rot2D(vec2(pos.y - 0.90, pos.z), headUp);
+        pos.y = 0.90 + yz.x;
+        pos.z = yz.y;
+        vec2 nyz = rot2D(vec2(norm.y, norm.z), headUp);
+        norm.y = nyz.x;
+        norm.z = nyz.y;
+      }
+
+      if (isArm) {
+        float armCrawl = 2.4 + sin(uGaitPhase) * legSign * 0.38 * mf;
+        vec2 yz = rot2D(vec2(pos.y - 0.82, pos.z), armCrawl);
+        pos.y = 0.82 + yz.x;
+        pos.z = yz.y;
+        vec2 nyz = rot2D(vec2(norm.y, norm.z), armCrawl);
+        norm.y = nyz.x;
+        norm.z = nyz.y;
+      }
+
+      if (isLeg) {
+        float legCrawl = sin(uGaitPhase) * legSign * 0.28 * mf;
+        vec2 yz = rot2D(vec2(pos.y - 0.44, pos.z), legCrawl);
+        pos.y = 0.44 + yz.x;
+        pos.z = yz.y;
+        vec2 nyz = rot2D(vec2(norm.y, norm.z), legCrawl);
+        norm.y = nyz.x;
+        norm.z = nyz.y;
+      }
+
+      // Rotate entire boy horizontal onto his stomach on the ground
+      float py = pos.y;
+      float pz = pos.z;
+      pos.y = -pz + 0.26;
+      pos.z = py - 0.75;
+
+      float ny = norm.y;
+      float nz = norm.z;
+      norm.y = -nz;
+      norm.z = ny;
+    } else {
+      // ==================== STANCE 3: SITTING ASTRIDE WARHORSE SADDLE ====================
+      float mf = clamp(uMoveFactor, 0.0, 1.35);
+
+      if (isLeg) {
+        // Spread legs outward to straddle the horse's barrel
+        float spread = (0.44 - origY) * 0.58;
+        pos.x += (origX < 0.0 ? -spread : spread);
+      }
+
+      if (isLowerLeg) {
+        float kneeAngle = 0.78;
+        vec2 yz = rot2D(vec2(pos.y - 0.24, pos.z - 0.02), -kneeAngle);
+        pos.y = 0.24 + yz.x;
+        pos.z = 0.02 + yz.y;
+        vec2 nyz = rot2D(vec2(norm.y, norm.z), -kneeAngle);
+        norm.y = nyz.x;
+        norm.z = nyz.y;
+      }
+
+      if (isLeg) {
+        float hipAngle = 0.68;
+        vec2 yz = rot2D(vec2(pos.y - 0.44, pos.z), hipAngle);
+        pos.y = 0.44 + yz.x;
+        pos.z = yz.y;
+        vec2 nyz = rot2D(vec2(norm.y, norm.z), hipAngle);
+        norm.y = nyz.x;
+        norm.z = nyz.y;
+      }
+
+      if (isArm) {
+        // Reach arms forward to hold the horse's golden reins
+        float armAngle = 0.75 + sin(uGaitPhase) * 0.08 * mf;
+        vec2 yz = rot2D(vec2(pos.y - 0.82, pos.z), armAngle);
+        pos.y = 0.82 + yz.x;
+        pos.z = yz.y;
+        vec2 nyz = rot2D(vec2(norm.y, norm.z), armAngle);
+        norm.y = nyz.x;
+        norm.z = nyz.y;
+      }
+
+      if (isUpperBody) {
+        float rideLean = 0.08 + 0.12 * min(mf, 1.2) + sin(uGaitPhase) * 0.05 * mf;
+        vec2 yz = rot2D(vec2(pos.y - 0.44, pos.z), rideLean);
+        pos.y = 0.44 + yz.x;
+        pos.z = yz.y;
+        vec2 nyz = rot2D(vec2(norm.y, norm.z), rideLean);
+        norm.y = nyz.x;
+        norm.z = nyz.y;
+      }
+
+      // Align seat at local y = 0.0 of the saddle mount point
+      pos.y -= 0.34;
+    }
+
+    vWorldNormal = normalize(mat3(modelMatrix) * norm);
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
+  }
+`;
+
+const BOY_CHARACTER_FRAGMENT_SHADER = /* glsl */ `
+  varying vec3 vColor;
+  varying vec3 vWorldNormal;
+  varying vec3 vOrigPos;
+
+  void main() {
+    vec3 n = normalize(vWorldNormal);
+    vec3 sunDir = normalize(vec3(0.45, 0.78, 0.42));
+    vec3 backDir = normalize(vec3(-0.35, 0.45, -0.75));
+
+    float diff = max(dot(n, sunDir), 0.0);
+    float backFill = max(dot(n, backDir), 0.0) * 0.25;
+    float hemi = 0.5 + 0.5 * n.y;
+
+    vec3 baseCol = vColor;
+
+    // Subtle anime eyes & eyebrows detail on the front face (origY = 1.04..1.14, origZ > 0.20)
+    if (vOrigPos.y > 1.03 && vOrigPos.y < 1.15 && vOrigPos.z > 0.20) {
+      float eyeDistL = length(vec2((vOrigPos.x - 0.088) * 1.15, (vOrigPos.y - 1.082) * 1.45));
+      float eyeDistR = length(vec2((vOrigPos.x + 0.088) * 1.15, (vOrigPos.y - 1.082) * 1.45));
+      float eyeDist = min(eyeDistL, eyeDistR);
+      if (eyeDist < 0.022) {
+        // Bright cobalt-blue ninja iris + dark pupil
+        baseCol = eyeDist < 0.011 ? vec3(0.06, 0.12, 0.24) : vec3(0.16, 0.48, 0.88);
+      } else if (eyeDist < 0.033) {
+        // Sclera & upper lash
+        baseCol = vOrigPos.y > 1.095 ? vec3(0.12, 0.09, 0.07) : vec3(0.97, 0.98, 0.99);
+      }
+      // Subtle whisker marks on cheeks
+      if (abs(vOrigPos.x) > 0.07 && abs(vOrigPos.x) < 0.165 && vOrigPos.y > 1.00 && vOrigPos.y < 1.055) {
+        float stripe = abs(fract((vOrigPos.y - 1.00) * 55.0) - 0.5);
+        if (stripe < 0.14) {
+          baseCol *= 0.78;
+        }
+      }
+    }
+
+    vec3 ambient = mix(vec3(0.32, 0.36, 0.42), vec3(0.68, 0.72, 0.78), hemi);
+    vec3 lit = baseCol * (ambient + diff * vec3(0.65, 0.62, 0.56) + backFill);
+
+    gl_FragColor = vec4(lit, 1.0);
+  }
+`;
+
+export function BoyCharacter3D({
+  stance = 'stand',
+  gaitPhase = 0,
+  moveFactor = 0,
+  gaitPhaseRef,
+  moveFactorRef,
+  scale = 1.0,
+}: {
+  stance?: FFPlayerStance;
+  gaitPhase?: number;
+  moveFactor?: number;
+  gaitPhaseRef?: React.MutableRefObject<number>;
+  moveFactorRef?: React.MutableRefObject<number>;
+  scale?: number;
+}) {
+  const [geom, setGeom] = useState<THREE.BufferGeometry | null>(() => cachedBoyGeometry);
+  const matRef = useRef<THREE.ShaderMaterial>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    ensureBoyCharacterLoaded((loaded) => {
+      if (mounted) setGeom(loaded);
+    });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const uniforms = useMemo(
+    () => ({
+      uGaitPhase: { value: 0 },
+      uMoveFactor: { value: 0 },
+      uStance: { value: 0 },
+      uIdleTime: { value: 0 },
+    }),
+    [],
+  );
+
+  useFrame((state) => {
+    if (!matRef.current) return;
+    const phaseVal = gaitPhaseRef ? gaitPhaseRef.current : gaitPhase;
+    const moveVal = moveFactorRef ? moveFactorRef.current : moveFactor;
+    const stanceCode =
+      stance === 'crouch' ? 1.0 : stance === 'prone' ? 2.0 : stance === 'horse_mount' ? 3.0 : 0.0;
+
+    matRef.current.uniforms.uGaitPhase.value = phaseVal;
+    matRef.current.uniforms.uMoveFactor.value = moveVal;
+    matRef.current.uniforms.uStance.value = stanceCode;
+    matRef.current.uniforms.uIdleTime.value = state.clock.elapsedTime;
+  });
+
+  return (
+    <group scale={scale}>
+      {/* Ground Contact Shadow Disc */}
+      {stance !== 'horse_mount' && (
+        <mesh position={[0, 0.015, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+          <circleGeometry args={[stance === 'prone' ? 0.48 : 0.34, 18]} />
+          <meshBasicMaterial color="#0b1508" transparent opacity={0.38} depthWrite={false} />
+        </mesh>
+      )}
+      {geom ? (
+        <mesh geometry={geom} frustumCulled={false}>
+          <shaderMaterial
+            ref={matRef}
+            uniforms={uniforms}
+            vertexShader={BOY_CHARACTER_VERTEX_SHADER}
+            fragmentShader={BOY_CHARACTER_FRAGMENT_SHADER}
+          />
+        </mesh>
+      ) : (
+        <mesh position={[0, 0.85, 0]} castShadow>
+          <capsuleGeometry args={[0.22, 0.9, 6, 12]} />
+          <meshStandardMaterial color="#3d6b2c" roughness={0.65} />
+        </mesh>
+      )}
+    </group>
+  );
+}
+
+/* ============================================================================
+ * 3A-2. USER'S 3D HORSE MODEL (user_horse_lod.glb) WITH EQUINE BIOMECHANICS
+ *       Natural 4-Beat Walk, 4-Beat Gallop/Run, Rearing Whinny + Neigh Audio, & Bascule Jump
+ * ============================================================================ */
+let cachedUserHorseGeometry: THREE.BufferGeometry | null = null;
+let userHorseLoadListeners: Array<(geom: THREE.BufferGeometry) => void> = [];
+let userHorseLoadStarted = false;
+
+function ensureUserHorseLoaded(onReady: (geom: THREE.BufferGeometry) => void) {
+  if (cachedUserHorseGeometry) {
+    onReady(cachedUserHorseGeometry);
+    return;
+  }
+  userHorseLoadListeners.push(onReady);
+  if (userHorseLoadStarted) return;
+  userHorseLoadStarted = true;
+
+  const loader = new GLTFLoader();
+  loader.load(
+    '/models/user_horse_lod.glb',
+    (gltf: GLTF) => {
+      let foundGeom: THREE.BufferGeometry | null = null;
+      gltf.scene.traverse((child: THREE.Object3D) => {
+        const mesh = child as THREE.Mesh;
+        if (!foundGeom && mesh.isMesh && mesh.geometry) {
+          foundGeom = mesh.geometry.clone();
+        }
+      });
+      if (foundGeom) {
+        const geom = foundGeom as THREE.BufferGeometry;
+        if (!geom.attributes.normal) {
+          geom.computeVertexNormals();
+        }
+        geom.computeBoundingBox();
+        cachedUserHorseGeometry = geom;
+        userHorseLoadListeners.forEach((cb) => cb(geom));
+        userHorseLoadListeners = [];
+      }
+    },
+    undefined,
+    (err) => {
+      console.warn('User horse GLB load warning:', err);
+    },
+  );
+}
+
+let sharedHorseAudioCtx: AudioContext | null = null;
+function getHorseAudioContext(): AudioContext | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const Ctx =
+      window.AudioContext ||
+      (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!Ctx) return null;
+    if (!sharedHorseAudioCtx) {
+      sharedHorseAudioCtx = new Ctx();
+    }
+    if (sharedHorseAudioCtx.state === 'suspended') {
+      void sharedHorseAudioCtx.resume();
+    }
+    return sharedHorseAudioCtx;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Synthesizes an authentic multi-harmonic Horse Whinny / Neigh + Nasal Snort using Web Audio API.
+ */
+export function playHorseWhinnySound() {
+  const ctx = getHorseAudioContext();
+  if (!ctx) return;
+  try {
+    const now = ctx.currentTime;
+    const duration = 1.65;
+
+    // Master gain envelope for the whinny
+    const masterGain = ctx.createGain();
+    masterGain.gain.setValueAtTime(0.001, now);
+    masterGain.gain.linearRampToValueAtTime(0.26, now + 0.09);
+    masterGain.gain.setValueAtTime(0.24, now + 0.55);
+    masterGain.gain.exponentialRampToValueAtTime(0.08, now + 1.25);
+    masterGain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+    masterGain.connect(ctx.destination);
+
+    // Equine vocal formant filter
+    const formant = ctx.createBiquadFilter();
+    formant.type = 'bandpass';
+    formant.frequency.setValueAtTime(1350, now);
+    formant.frequency.linearRampToValueAtTime(1850, now + 0.25);
+    formant.frequency.linearRampToValueAtTime(980, now + 1.35);
+    formant.Q.setValueAtTime(2.4, now);
+    formant.connect(masterGain);
+
+    // Primary laryngeal fundamental + 2nd harmonic
+    const osc1 = ctx.createOscillator();
+    const osc2 = ctx.createOscillator();
+    osc1.type = 'sawtooth';
+    osc2.type = 'triangle';
+
+    // Classic horse neigh pitch contour: rises sharply to high crest, then cascades down in fluttering steps
+    osc1.frequency.setValueAtTime(620, now);
+    osc1.frequency.exponentialRampToValueAtTime(1180, now + 0.22);
+    osc1.frequency.exponentialRampToValueAtTime(940, now + 0.65);
+    osc1.frequency.exponentialRampToValueAtTime(680, now + 1.15);
+    osc1.frequency.exponentialRampToValueAtTime(430, now + duration);
+
+    osc2.frequency.setValueAtTime(1240, now);
+    osc2.frequency.exponentialRampToValueAtTime(2320, now + 0.22);
+    osc2.frequency.exponentialRampToValueAtTime(1820, now + 0.65);
+    osc2.frequency.exponentialRampToValueAtTime(1320, now + 1.15);
+    osc2.frequency.exponentialRampToValueAtTime(860, now + duration);
+
+    // Equine laryngeal vibrato / trill (10.5 Hz flutter)
+    const vibrato = ctx.createOscillator();
+    const vibratoGain = ctx.createGain();
+    vibrato.frequency.setValueAtTime(10.5, now);
+    vibrato.frequency.linearRampToValueAtTime(7.8, now + duration);
+    vibratoGain.gain.setValueAtTime(48, now);
+    vibratoGain.gain.linearRampToValueAtTime(75, now + 0.5);
+    vibratoGain.gain.linearRampToValueAtTime(28, now + duration);
+
+    vibrato.connect(vibratoGain);
+    vibratoGain.connect(osc1.frequency);
+    vibratoGain.connect(osc2.frequency);
+
+    const osc2Gain = ctx.createGain();
+    osc2Gain.gain.setValueAtTime(0.45, now);
+    osc2.connect(osc2Gain);
+
+    osc1.connect(formant);
+    osc2Gain.connect(formant);
+
+    osc1.start(now);
+    osc2.start(now);
+    vibrato.start(now);
+    osc1.stop(now + duration);
+    osc2.stop(now + duration);
+    vibrato.stop(now + duration);
+  } catch {
+    // Ignore audio context restrictions
+  }
+}
+
+/**
+ * Synthesizes a muscular equine hoof takeoff + thud sound when jumping.
+ */
+export function playHorseJumpSound() {
+  const ctx = getHorseAudioContext();
+  if (!ctx) return;
+  try {
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(145, now);
+    osc.frequency.exponentialRampToValueAtTime(52, now + 0.16);
+    gain.gain.setValueAtTime(0.22, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.18);
+  } catch {
+    // Ignore audio context restrictions
+  }
+}
+
+const USER_HORSE_VERTEX_SHADER = /* glsl */ `
+  attribute vec3 color;
+
+  uniform float uGaitPhase;
+  uniform float uMoveFactor;
+  uniform float uGallopBlend; // 0.0 = natural 4-beat walk, 1.0 = 4-beat gallop/run
+  uniform float uWhinny;      // 0.0 .. 1.0 rearing + head toss + jaw open
+  uniform float uJumpArc;     // 0.0 .. 1.0 bascule jump arc
+  uniform float uRearAngle;   // radians rearing pitch around hind hooves
+  uniform float uIdleTime;
+
+  varying vec3 vColor;
+  varying vec3 vWorldNormal;
+  varying vec3 vOrigPos;
+
+  vec2 rot2D(vec2 v, float a) {
+    float c = cos(a);
+    float s = sin(a);
+    return vec2(v.x * c - v.y * s, v.x * s + v.y * c);
+  }
+
+  void main() {
+    vColor = length(color) > 0.01 ? color : vec3(0.54, 0.27, 0.12);
+    vOrigPos = position;
+
+    vec3 pos = position;
+    vec3 norm = normal;
+
+    float origX = position.x;
+    float origY = position.y;
+    float origZ = position.z;
+    float absX = abs(origX);
+
+    // Anatomical segmentation of user_horse_lod.glb (grounded at Y=0.000, ears at Y=1.639, nose at Z=+0.917, tail at Z=-0.946)
+    bool isTail = (origZ < -0.705) || (origZ < -0.665 && origY > 0.14 && absX < 0.095 && (origZ < -0.685 || origY > 0.68));
+    bool isFrontLeg = !isTail && origY < 0.62 && origZ > -0.15;
+    bool isFrontLowerLeg = isFrontLeg && origY < 0.33;
+    bool isFrontHoof = isFrontLeg && origY < 0.14;
+
+    bool isBackLeg = !isTail && origY < 0.65 && origZ <= -0.15;
+    bool isBackLowerLeg = isBackLeg && origY < 0.35;
+    bool isBackHoof = isBackLeg && origY < 0.15;
+
+    bool isNeckAndHead = (origZ > 0.08 && origY > 0.94) || origZ > 0.36;
+    bool isHeadOnly = (origZ > 0.44 && origY > 1.15) || origZ > 0.56;
+    bool isLowerJaw = origZ > 0.64 && origY >= 1.00 && origY < 1.23;
+    bool isEars = origY > 1.50;
+
+    float mf = clamp(uMoveFactor, 0.0, 1.35);
+    float gb = clamp(uGallopBlend, 0.0, 1.0);
+    float whinny = clamp(uWhinny, 0.0, 1.0);
+    float jumpSin = uJumpArc > 0.005 ? sin(uJumpArc * 3.14159265) : 0.0;
+
+    // ==================== 1. 4-BEAT WALK & 4-BEAT GALLOP LEG PHASES ====================
+    // Walk sequence: Back-Left (0) -> Front-Left (PI/2) -> Back-Right (PI) -> Front-Right (3PI/2)
+    // Gallop sequence: Back-Left (0) -> Back-Right (0.52) -> Front-Left (2.85) -> Front-Right (3.37)
+    float isLeft = origX >= 0.0 ? 1.0 : 0.0;
+
+    if (isFrontLeg) {
+      float walkPhase = uGaitPhase + (isLeft > 0.5 ? 1.5708 : 4.7124);
+      float gallopPhase = uGaitPhase + (isLeft > 0.5 ? 2.85 : 3.37);
+      float legPhase = mix(walkPhase, gallopPhase, gb);
+
+      // A. Fetlock & Hoof Pastern Flexion around (y=0.13, z=0.16)
+      if (isFrontHoof) {
+        float fetlockFlex = max(0.0, cos(legPhase - 0.15)) * (0.38 + 0.28 * gb) * mf + 0.35 * whinny + 0.42 * jumpSin;
+        vec2 yz = rot2D(vec2(pos.y - 0.13, pos.z - 0.16), fetlockFlex);
+        pos.y = 0.13 + yz.x;
+        pos.z = 0.16 + yz.y;
+        vec2 nyz = rot2D(vec2(norm.y, norm.z), fetlockFlex);
+        norm.y = nyz.x;
+        norm.z = nyz.y;
+      }
+
+      // B. Front Knee (Carpus) Flexion around (y=0.32, z=0.17)
+      // Note: for dy < 0, positive angle folds the lower leg backward (-Z) and lifts the hoof up (+Y)
+      if (isFrontLowerLeg) {
+        float strideKnee = max(0.0, cos(legPhase - 0.25)) * (0.64 + 0.42 * gb) * mf;
+        float pawWave = sin(uIdleTime * 10.5 + (isLeft > 0.5 ? 0.0 : 3.14159)) * 0.32;
+        float whinnyKnee = (0.86 + pawWave) * whinny;
+        float jumpKnee = 1.08 * jumpSin;
+        float totalKnee = strideKnee + whinnyKnee + jumpKnee;
+
+        vec2 yz = rot2D(vec2(pos.y - 0.32, pos.z - 0.17), totalKnee);
+        pos.y = 0.32 + yz.x;
+        pos.z = 0.17 + yz.y;
+        vec2 nyz = rot2D(vec2(norm.y, norm.z), totalKnee);
+        norm.y = nyz.x;
+        norm.z = nyz.y;
+      }
+
+      // C. Shoulder / Elbow Swing around (y=0.60, z=0.19)
+      // Note: for dy < 0, negative angle reaches the foreleg forward (+Z), positive pushes it backward (-Z)
+      float strideShoulder = sin(legPhase) * (0.44 + 0.32 * gb) * mf;
+      float pawShoulder = (-0.68 + sin(uIdleTime * 10.5 + (isLeft > 0.5 ? 0.0 : 3.14159)) * 0.44) * whinny;
+      float jumpShoulder = -0.66 * jumpSin;
+      float totalShoulder = strideShoulder + pawShoulder + jumpShoulder;
+
+      vec2 yz = rot2D(vec2(pos.y - 0.60, pos.z - 0.19), totalShoulder);
+      pos.y = 0.60 + yz.x;
+      pos.z = 0.19 + yz.y;
+      vec2 nyz = rot2D(vec2(norm.y, norm.z), totalShoulder);
+      norm.y = nyz.x;
+      norm.z = nyz.y;
+    }
+
+    if (isBackLeg) {
+      float walkPhase = uGaitPhase + (isLeft > 0.5 ? 0.0 : 3.1416);
+      float gallopPhase = uGaitPhase + (isLeft > 0.5 ? 0.0 : 0.52);
+      float legPhase = mix(walkPhase, gallopPhase, gb);
+
+      // A. Back Fetlock Flexion around (y=0.13, z=-0.62)
+      if (isBackHoof) {
+        float fetlockFlex = max(0.0, cos(legPhase)) * (0.34 + 0.25 * gb) * mf * (1.0 - whinny);
+        vec2 yz = rot2D(vec2(pos.y - 0.13, pos.z - -0.62), fetlockFlex);
+        pos.y = 0.13 + yz.x;
+        pos.z = -0.62 + yz.y;
+      }
+
+      // B. Back Hock Joint Flexion around (y=0.34, z=-0.63)
+      if (isBackLowerLeg) {
+        float strideHock = max(0.0, cos(legPhase - 0.2)) * (0.52 + 0.38 * gb) * mf * (1.0 - whinny);
+        float jumpHock = 0.88 * jumpSin;
+        float totalHock = strideHock + jumpHock;
+
+        vec2 yz = rot2D(vec2(pos.y - 0.34, pos.z - -0.63), totalHock);
+        pos.y = 0.34 + yz.x;
+        pos.z = -0.63 + yz.y;
+        vec2 nyz = rot2D(vec2(norm.y, norm.z), totalHock);
+        norm.y = nyz.x;
+        norm.z = nyz.y;
+      }
+
+      // C. Hip / Stifle Swing around (y=0.63, z=-0.56)
+      float strideHip = sin(legPhase) * (0.38 + 0.36 * gb) * mf * (1.0 - whinny);
+      float jumpHip = 0.54 * jumpSin;
+      float totalHip = strideHip + jumpHip;
+
+      vec2 yz = rot2D(vec2(pos.y - 0.63, pos.z - -0.56), totalHip);
+      pos.y = 0.63 + yz.x;
+      pos.z = -0.56 + yz.y;
+      vec2 nyz = rot2D(vec2(norm.y, norm.z), totalHip);
+      norm.y = nyz.x;
+      norm.z = nyz.y;
+    }
+
+    // ==================== 2. JAW, EARS, HEAD & NECK KINEMATICS ====================
+    // A. Lower Jaw opens with vocal flutter when Whinnying
+    if (isLowerJaw && whinny > 0.01) {
+      float jawOpen = (0.22 + 0.07 * sin(uIdleTime * 24.0)) * whinny;
+      vec2 yz = rot2D(vec2(pos.y - 1.22, pos.z - 0.64), jawOpen);
+      pos.y = 1.22 + yz.x;
+      pos.z = 0.64 + yz.y;
+    }
+
+    // B. Alert Ear Twitch & Whinny Ear Quiver
+    if (isEars) {
+      float earTwitch = sin(uIdleTime * 3.6 + origX * 14.0) * 0.012 + sin(uIdleTime * 18.0) * 0.022 * whinny;
+      pos.z += earTwitch;
+    }
+
+    // C. Head Poll Nod & Whinny Head Toss around (y=1.42, z=0.56)
+    if (isHeadOnly) {
+      float walkHeadNod = sin(uGaitPhase * 2.0 - 0.4) * 0.075 * mf * (1.0 - gb);
+      float gallopHead = -0.12 * mf * gb;
+      float whinnyToss = (-0.28 + sin(uIdleTime * 12.5) * 0.14) * whinny;
+      float headAngle = walkHeadNod + gallopHead + whinnyToss;
+
+      vec2 yz = rot2D(vec2(pos.y - 1.42, pos.z - 0.56), headAngle);
+      pos.y = 1.42 + yz.x;
+      pos.z = 0.56 + yz.y;
+      vec2 nyz = rot2D(vec2(norm.y, norm.z), headAngle);
+      norm.y = nyz.x;
+      norm.z = nyz.y;
+    }
+
+    // D. Neck Base Movement around Withers/Chest (y=0.98, z=0.22)
+    if (isNeckAndHead) {
+      float walkNeckNod = sin(uGaitPhase * 2.0) * 0.07 * mf * (1.0 - gb);
+      float gallopNeckStretch = 0.16 * mf * gb;
+      float whinnyNeckArch = -0.20 * whinny;
+      float jumpNeck = 0.18 * jumpSin;
+      float idleNeck = sin(uIdleTime * 1.9) * 0.022 * (1.0 - min(1.0, mf));
+      float neckAngle = walkNeckNod + gallopNeckStretch + whinnyNeckArch + jumpNeck + idleNeck;
+
+      vec2 yz = rot2D(vec2(pos.y - 0.98, pos.z - 0.22), neckAngle);
+      pos.y = 0.98 + yz.x;
+      pos.z = 0.22 + yz.y;
+      vec2 nyz = rot2D(vec2(norm.y, norm.z), neckAngle);
+      norm.y = nyz.x;
+      norm.z = nyz.y;
+    }
+
+    // ==================== 3. FLOWING TAIL SWAY & GALLOP STREAM ====================
+    if (isTail) {
+      float tailLift = 0.18 * mf + 0.36 * mf * gb + 0.34 * whinny + 0.38 * jumpSin;
+      float tailWave = sin(uGaitPhase * 1.5 + (1.06 - origY) * 3.5) * (0.06 + 0.12 * mf);
+      vec2 yz = rot2D(vec2(pos.y - 1.06, pos.z - -0.70), tailLift + tailWave * 0.4);
+      pos.y = 1.06 + yz.x;
+      pos.z = -0.70 + yz.y;
+      // Lateral pendulum swish
+      float distFromDock = clamp(1.06 - origY, 0.0, 0.95);
+      pos.x += sin(uGaitPhase + distFromDock * 2.8 + uIdleTime * 2.2) * (0.025 + 0.065 * mf + 0.05 * whinny) * distFromDock;
+    }
+
+    // ==================== 4. WHOLE-BODY REARING (WHINNY / JUMP) & GALLOP SUSPENSION ====================
+    // Gallop suspension pitch around center of mass (y=0.88, z=-0.18)
+    if (gb > 0.05 && mf > 0.1) {
+      float gallopPitch = sin(uGaitPhase) * 0.075 * mf * gb;
+      vec2 yz = rot2D(vec2(pos.y - 0.88, pos.z - -0.18), gallopPitch);
+      pos.y = 0.88 + yz.x;
+      pos.z = -0.18 + yz.y;
+      vec2 nyz = rot2D(vec2(norm.y, norm.z), gallopPitch);
+      norm.y = nyz.x;
+      norm.z = nyz.y;
+    }
+
+    // Rearing up on Hind Hooves (y=0.05, z=-0.60) during Whinny or Jump Takeoff
+    if (abs(uRearAngle) > 0.002) {
+      // Negative angle in rot2D lifts forequarters (+Z) upward (+Y) around hind hooves
+      vec2 yz = rot2D(vec2(pos.y - 0.05, pos.z - -0.60), -uRearAngle);
+      pos.y = 0.05 + yz.x;
+      pos.z = -0.60 + yz.y;
+      vec2 nyz = rot2D(vec2(norm.y, norm.z), -uRearAngle);
+      norm.y = nyz.x;
+      norm.z = nyz.y;
+    }
+
+    // Vertical stride suspension bob & subtle ribcage breathing
+    float strideBob = mix(
+      abs(sin(uGaitPhase * 2.0)) * 0.028 * mf,
+      abs(cos(uGaitPhase)) * 0.065 * mf,
+      gb
+    );
+    pos.y += strideBob;
+
+    if (origY > 0.55 && origY < 1.15 && origZ > -0.50 && origZ < 0.25) {
+      pos.x += (origX >= 0.0 ? 1.0 : -1.0) * sin(uIdleTime * 2.6) * 0.006;
+    }
+
+    vWorldNormal = normalize(mat3(modelMatrix) * norm);
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
+  }
+`;
+
+const USER_HORSE_FRAGMENT_SHADER = /* glsl */ `
+  varying vec3 vColor;
+  varying vec3 vWorldNormal;
+  varying vec3 vOrigPos;
+
+  void main() {
+    vec3 n = normalize(vWorldNormal);
+    vec3 sunDir = normalize(vec3(0.45, 0.78, 0.42));
+    vec3 backDir = normalize(vec3(-0.35, 0.45, -0.75));
+    vec3 viewDir = normalize(vec3(0.0, 0.35, -1.0));
+
+    float diff = max(dot(n, sunDir), 0.0);
+    float backFill = max(dot(n, backDir), 0.0) * 0.24;
+    float hemi = 0.5 + 0.5 * n.y;
+
+    // Glossy equine coat sheen (anisotropic-style rim/specular highlight on muscular contours)
+    vec3 halfVec = normalize(sunDir + viewDir);
+    float spec = pow(max(dot(n, halfVec), 0.0), 22.0) * 0.18;
+
+    vec3 ambient = mix(vec3(0.32, 0.34, 0.38), vec3(0.68, 0.71, 0.75), hemi);
+    vec3 lit = vColor * (ambient + diff * vec3(0.68, 0.64, 0.58) + backFill) + vec3(1.0, 0.92, 0.80) * spec;
+
+    gl_FragColor = vec4(lit, 1.0);
+  }
+`;
+
+export interface HorseAnimRefs {
+  gaitPhase: number;
+  moveFactor: number;
+  gallopBlend: number;
+  whinnyIntensity: number;
+  jumpArc: number;
+  rearAngleRad: number;
+  jumpOffset?: number;
+}
+
+export function UserHorseModel3D({
+  animRef,
+  scale = 1.0,
+}: {
+  animRef: React.MutableRefObject<HorseAnimRefs>;
+  scale?: number;
+}) {
+  const [geom, setGeom] = useState<THREE.BufferGeometry | null>(() => cachedUserHorseGeometry);
+  const matRef = useRef<THREE.ShaderMaterial>(null);
+  const shadowRef = useRef<THREE.Mesh>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    ensureUserHorseLoaded((loaded) => {
+      if (mounted) setGeom(loaded);
+    });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const uniforms = useMemo(
+    () => ({
+      uGaitPhase: { value: 0 },
+      uMoveFactor: { value: 0 },
+      uGallopBlend: { value: 0 },
+      uWhinny: { value: 0 },
+      uJumpArc: { value: 0 },
+      uRearAngle: { value: 0 },
+      uIdleTime: { value: 0 },
+    }),
+    [],
+  );
+
+  useFrame((state) => {
+    if (!matRef.current) return;
+    const a = animRef.current;
+    matRef.current.uniforms.uGaitPhase.value = a.gaitPhase;
+    matRef.current.uniforms.uMoveFactor.value = a.moveFactor;
+    matRef.current.uniforms.uGallopBlend.value = a.gallopBlend;
+    matRef.current.uniforms.uWhinny.value = a.whinnyIntensity;
+    matRef.current.uniforms.uJumpArc.value = a.jumpArc;
+    matRef.current.uniforms.uRearAngle.value = a.rearAngleRad;
+    matRef.current.uniforms.uIdleTime.value = state.clock.elapsedTime;
+
+    if (shadowRef.current) {
+      const jOff = a.jumpOffset || 0;
+      shadowRef.current.position.y = 0.015 - jOff / (scale * 0.72);
+      const shrink = Math.max(0.55, 1.0 - jOff * 0.25);
+      shadowRef.current.scale.set(shrink, 2.1 * shrink, 1.0);
+    }
+  });
+
+  return (
+    <group scale={scale}>
+      {/* Equine Ground Contact Shadow Oval (stays on ground surface when horse jumps) */}
+      <mesh
+        ref={shadowRef}
+        position={[0, 0.015, -0.12]}
+        rotation={[-Math.PI / 2, 0, 0]}
+        scale={[1.0, 2.1, 1.0]}
+      >
+        <circleGeometry args={[0.36, 20]} />
+        <meshBasicMaterial color="#0b1508" transparent opacity={0.38} depthWrite={false} />
+      </mesh>
+      {geom ? (
+        <mesh geometry={geom} frustumCulled={false}>
+          <shaderMaterial
+            ref={matRef}
+            uniforms={uniforms}
+            vertexShader={USER_HORSE_VERTEX_SHADER}
+            fragmentShader={USER_HORSE_FRAGMENT_SHADER}
+          />
+        </mesh>
+      ) : (
+        <mesh position={[0, 0.85, 0]}>
+          <boxGeometry args={[0.5, 0.8, 1.5]} />
+          <meshStandardMaterial color="#7c3f1c" roughness={0.68} />
+        </mesh>
+      )}
+    </group>
+  );
+}
+
+/* ============================================================================
+ * 3B. COMPOSITE 3D FREE FIRE CHARACTER MODEL (FOR SQUARE WALKING & TRAINING ROOM)
  * ============================================================================ */
 export function CompositeFFPlayerCharacter({
   walkPhase = 0,
   isWalking = false,
   holdingDevice = false,
-  jacketColor = '#0ea5e9',
+  stance = 'stand',
 }: {
   walkPhase?: number;
   isWalking?: boolean;
   holdingDevice?: boolean;
   jacketColor?: string;
+  stance?: FFPlayerStance;
 }) {
-  const swing = isWalking ? Math.sin(walkPhase * 8) * 0.55 : 0;
-
   return (
     <group>
-      {/* Left & Right Legs */}
-      <group position={[-0.14, 0.72, 0]} rotation={[swing, 0, 0]}>
-        <mesh position={[0, -0.32, 0]} castShadow>
-          <boxGeometry args={[0.16, 0.64, 0.18]} />
-          <meshStandardMaterial color="#1e293b" roughness={0.7} />
-        </mesh>
-        <mesh position={[0, -0.66, 0.04]}>
-          <boxGeometry args={[0.18, 0.12, 0.26]} />
-          <meshStandardMaterial color="#f8fafc" roughness={0.4} />
-        </mesh>
-      </group>
-      <group position={[0.14, 0.72, 0]} rotation={[-swing, 0, 0]}>
-        <mesh position={[0, -0.32, 0]} castShadow>
-          <boxGeometry args={[0.16, 0.64, 0.18]} />
-          <meshStandardMaterial color="#1e293b" roughness={0.7} />
-        </mesh>
-        <mesh position={[0, -0.66, 0.04]}>
-          <boxGeometry args={[0.18, 0.12, 0.26]} />
-          <meshStandardMaterial color="#f8fafc" roughness={0.4} />
-        </mesh>
-      </group>
-
-      {/* Torso & Tactical Vest */}
-      <mesh position={[0, 1.12, 0]} castShadow>
-        <boxGeometry args={[0.44, 0.62, 0.26]} />
-        <meshStandardMaterial color={jacketColor} roughness={0.45} />
-      </mesh>
-      <mesh position={[0, 1.14, 0.14]}>
-        <boxGeometry args={[0.3, 0.42, 0.04]} />
-        <meshStandardMaterial color="#0f172a" roughness={0.6} />
-      </mesh>
-      <mesh position={[0, 1.18, 0.17]}>
-        <boxGeometry args={[0.18, 0.08, 0.02]} />
-        <meshBasicMaterial color="#38bdf8" />
-      </mesh>
-
-      {/* Head, Hair & Tactical Visor */}
-      <group position={[0, 1.62, 0]}>
-        <mesh castShadow>
-          <sphereGeometry args={[0.18, 16, 16]} />
-          <meshStandardMaterial color="#e2a77f" roughness={0.6} />
-        </mesh>
-        <mesh position={[0, 0.07, -0.02]}>
-          <sphereGeometry args={[0.19, 14, 14]} />
-          <meshStandardMaterial color="#0f172a" roughness={0.5} />
-        </mesh>
-        <mesh position={[0, 0.02, 0.16]}>
-          <boxGeometry args={[0.24, 0.07, 0.05]} />
-          <meshBasicMaterial color="#38bdf8" />
-        </mesh>
-      </group>
-
-      {/* Left & Right Arms */}
-      <group
-        position={[-0.29, 1.32, 0]}
-        rotation={[holdingDevice ? -0.85 : -swing * 0.8, holdingDevice ? 0.25 : 0, 0]}
-      >
-        <mesh position={[0, -0.24, 0]} castShadow>
-          <boxGeometry args={[0.13, 0.5, 0.14]} />
-          <meshStandardMaterial color={jacketColor} roughness={0.5} />
-        </mesh>
-      </group>
-      <group
-        position={[0.29, 1.32, 0]}
-        rotation={[holdingDevice ? -0.85 : swing * 0.8, holdingDevice ? -0.25 : 0, 0]}
-      >
-        <mesh position={[0, -0.24, 0]} castShadow>
-          <boxGeometry args={[0.13, 0.5, 0.14]} />
-          <meshStandardMaterial color={jacketColor} roughness={0.5} />
-        </mesh>
-      </group>
+      <BoyCharacter3D
+        stance={stance}
+        gaitPhase={walkPhase * 8.0}
+        moveFactor={isWalking ? 0.95 : 0.0}
+        scale={0.95}
+      />
 
       {/* Glowing Logging Tablet Device when in FF Training Room */}
       {holdingDevice && (
-        <group position={[0, 1.12, 0.42]} rotation={[-0.45, 0, 0]}>
+        <group position={[0, 1.02, 0.38]} rotation={[-0.45, 0, 0]}>
           <mesh castShadow>
-            <boxGeometry args={[0.46, 0.32, 0.04]} />
+            <boxGeometry args={[0.42, 0.28, 0.04]} />
             <meshStandardMaterial color="#1e293b" roughness={0.3} metalness={0.25} />
           </mesh>
           <mesh position={[0, 0, 0.025]}>
-            <planeGeometry args={[0.4, 0.26]} />
+            <planeGeometry args={[0.36, 0.22]} />
             <meshBasicMaterial color="#38bdf8" />
           </mesh>
         </group>
@@ -1188,14 +2076,13 @@ function CoCBeachShipwreckBoat3D({ onClick }: { onClick?: () => void }) {
  * ============================================================================ */
 export function SquareBaseSceneR3F({
   sectorId,
-  sectorName,
   sectorColor,
-  sectorLevel,
   shops,
   clanRewards,
   keysRef,
   uiSteerRef,
   squareCamMode,
+  playerStance = 'stand',
   onNearShopChange,
   onSelectShopForLog,
   onExitSquareToPlanet,
@@ -1209,12 +2096,15 @@ export function SquareBaseSceneR3F({
   keysRef: React.MutableRefObject<Record<string, boolean>>;
   uiSteerRef: React.MutableRefObject<{ forward: number; turn: number; gallop: boolean; jump: boolean }>;
   squareCamMode: 'ff_third_person' | 'coc_overview';
+  playerStance?: FFPlayerStance;
   onNearShopChange: (shop: ShopTrackerDefinition | null) => void;
   onSelectShopForLog: (shop: ShopTrackerDefinition) => void;
   onExitSquareToPlanet: () => void;
 }) {
   const playerGroupRef = useRef<THREE.Group>(null);
   const campfireFlameRef = useRef<THREE.Mesh>(null);
+  const squareGaitPhaseRef = useRef(0);
+  const squareMoveFactorRef = useRef(0);
   const playerStateRef = useRef({
     x: 4.5,
     z: 11.5,
@@ -1269,14 +2159,22 @@ export function SquareBaseSceneR3F({
     if (k.KeyD || k.ArrowRight) turn = 1;
 
     const p = playerStateRef.current;
-    const sprintMult = ui.gallop || k.ShiftLeft || k.ShiftRight ? 1.55 : 1.0;
+    const isSprinting = ui.gallop || k.ShiftLeft || k.ShiftRight;
+    const stanceSpeedMult =
+      playerStance === 'prone'
+        ? 0.38
+        : playerStance === 'crouch'
+          ? 0.58
+          : isSprinting
+            ? 1.55
+            : 1.0;
 
     if (Math.abs(turn) > 0.05) {
       p.heading -= turn * 2.8 * dt;
     }
 
     if (Math.abs(forward) > 0.05) {
-      const moveSpeed = 6.5 * sprintMult * forward;
+      const moveSpeed = 6.5 * stanceSpeedMult * forward;
       const nx = p.x + Math.sin(p.heading) * moveSpeed * dt;
       const nz = p.z + Math.cos(p.heading) * moveSpeed * dt;
       // Allow walking north up the 24-Step Sky Staircase (Z < -17.5) to the Floating Main Hall
@@ -1288,10 +2186,13 @@ export function SquareBaseSceneR3F({
         p.x = THREE.MathUtils.clamp(nx, -17.5, 17.5);
         p.z = THREE.MathUtils.clamp(nz, -35.5, 18.5);
       }
-      p.walkPhase += Math.abs(moveSpeed) * dt * 0.45;
+      p.walkPhase += Math.abs(moveSpeed) * dt * 1.35;
       p.isWalking = true;
+      squareGaitPhaseRef.current = p.walkPhase;
+      squareMoveFactorRef.current = isSprinting && playerStance === 'stand' ? 1.25 : 0.85;
     } else {
       p.isWalking = false;
+      squareMoveFactorRef.current = 0;
     }
 
     // Compute floor height (0 on the clearing lawn, rising up the 24-step Sky Staircase from Z=-17.5 to Z=-28.5 up to Y=11.5 above the 3D forest trees)
@@ -1694,17 +2595,18 @@ export function SquareBaseSceneR3F({
         <MainHallModel3D scale={2.9} accentColor={sectorColor} showPedestal />
       </group>
 
-      {/* 9. FREE FIRE THIRD-PERSON PLAYER CHARACTER */}
+      {/* 9. FREE FIRE THIRD-PERSON PLAYER CHARACTER (USER'S 3D BOY MODEL) */}
       <group
         ref={playerGroupRef}
         position={[4.5, 0, 11.5]}
         rotation={[0, Math.PI, 0]}
         visible={squareCamMode === 'ff_third_person'}
       >
-        <CompositeFFPlayerCharacter
-          walkPhase={playerStateRef.current.walkPhase}
-          isWalking={playerStateRef.current.isWalking}
-          holdingDevice={false}
+        <BoyCharacter3D
+          stance={playerStance}
+          gaitPhaseRef={squareGaitPhaseRef}
+          moveFactorRef={squareMoveFactorRef}
+          scale={0.95}
         />
       </group>
     </group>
